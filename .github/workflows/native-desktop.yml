@@ -1,0 +1,34 @@
+name: Native desktop compilation
+on:
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build native self-contained Windows EXE
+        run: dotnet publish native/windows/BotHub.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BotHub-native-windows-incomplete
+          path: dist/windows/
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile SwiftUI app
+        run: |
+          mkdir -p dist/BotHub.app/Contents/MacOS
+          mkdir -p dist/BotHub.app/Contents/Resources
+          swiftc native/macos/BotHub.swift -o dist/BotHub.app/Contents/MacOS/BotHub -framework SwiftUI
+          printf 'APPL????' > dist/BotHub.app/Contents/PkgInfo
+          /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string BotHub' -c 'Add :CFBundleIdentifier string com.botify.bothub.macos' -c 'Add :CFBundlePackageType string APPL' dist/BotHub.app/Contents/Info.plist
+      - name: Package unsigned DMG
+        run: hdiutil create -volname BotHub -srcfolder dist/BotHub.app -ov -format UDZO dist/BotHub-unsigned.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BotHub-native-macos-incomplete
+          path: dist/BotHub-unsigned.dmg
