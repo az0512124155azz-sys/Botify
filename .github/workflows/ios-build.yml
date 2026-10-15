@@ -1,0 +1,14 @@
+name: iOS simulator compilation
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run check
+      - run: npx expo prebuild --platform ios --non-interactive
+      - run: xcodebuild -workspace ios/BotHub.xcworkspace -scheme BotHub -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
