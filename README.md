@@ -31,3 +31,11 @@ Local foreground notifications are **not** reliable closed-app alerts. Critical 
 No GitHub login is or will be required inside BotHub. GitHub hosts the source code and build workflows only.
 
 No production end-to-end test, signed release APK, or IPA has been verified yet.
+
+
+## Platform build status (October 2026)
+- Android: manual GitHub workflow compiles debug APK and runs emulator smoke checks; no successful run has been confirmed.
+- iOS: workflow attempts unsigned simulator compilation; it does not create an installable IPA, which requires Apple signing/provisioning.
+- Windows/macOS: Electron packaging workflows build a **placeholder desktop shell**, not BotHub Telegram functionality. Do not present EXE/DMG as finished apps.
+- Full Telegram account-based bot-only client requires native TDLib integration with Telegram application API credentials, authentication UI, encrypted local database, and chat filtering. Not yet implemented.
+- Background critical push notifications require deployment/configuration and cannot be guaranteed by device-only polling.
