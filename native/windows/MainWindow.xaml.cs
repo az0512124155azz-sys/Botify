@@ -54,6 +54,7 @@ public partial class MainWindow : Window
             }
         }
         if(kind=="chat"){ReadChat(item);return;}
+        if(kind=="messages"){foreach(var m in item.GetProperty("messages").EnumerateArray()){if(m.ValueKind==JsonValueKind.Null)continue;if(m.TryGetProperty("content",out var content)&&content.TryGetProperty("text",out var body))Messages.Items.Insert(0,body.GetProperty("text").GetString());}return;}
         if(kind=="updateNewMessage"){
             var m=item.GetProperty("message");if(m.GetProperty("chat_id").GetInt64()!=selected)return;
             if(m.TryGetProperty("content",out var c)&&c.TryGetProperty("text",out var text)) Messages.Items.Add(text.GetProperty("text").GetString());
