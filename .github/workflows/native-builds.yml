@@ -92,6 +92,7 @@ jobs:
           mkdir -p dist/BotHub.app/Contents/MacOS dist/BotHub.app/Contents/Resources
           swiftc -parse-as-library native/macos/*.swift -o dist/BotHub.app/Contents/MacOS/BotHub -framework SwiftUI -framework Security -framework UserNotifications
           cp scripts/macos-Info.plist dist/BotHub.app/Contents/Info.plist
+          bash scripts/macos-icon.sh
           plutil -lint dist/BotHub.app/Contents/Info.plist
       - run: brew install gperf openssl@3 cmake
       - uses: actions/cache/restore@v4
@@ -110,6 +111,7 @@ jobs:
         run: |
           python3 scripts/smoke-tdlib.py dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
           otool -L dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
+          if otool -L dist/BotHub.app/Contents/Frameworks/libtdjson.dylib | grep -E "/opt/homebrew|/usr/local/opt|/Users/runner"; then exit 1; fi
           cp native/TDLib-LICENSE.txt dist/BotHub.app/Contents/Resources/TDLib-LICENSE.txt
           codesign --force --sign - dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
           codesign --force --sign - dist/BotHub.app

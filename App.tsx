@@ -5,8 +5,9 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
 import {nativeTdlib, NativeTdlib} from './modules/bothub-tdlib';
-import {authRequest, BotStore, botLink, BotChat, mediaFile, messageText, Preference, Td, TdRequests, TelegramError} from './src/telegram/tdlib';
+import {authRequest, BotStore, botLink, BotChat, mediaFile, messageText, Preference, Td, TdRequests, TelegramError, localFilePath, documentContent} from './src/telegram/tdlib';
 
 Notifications.setNotificationHandler({handleNotification: async notification => ({
   shouldShowBanner: true, shouldShowList: true, shouldSetBadge: false,
@@ -151,7 +152,18 @@ function Main() {
   }
   async function send(text=draft) {
     const chat=current.current;if(!chat||!text.trim()||(prefs.current[chat.id]||defaults).category==='alerts')return;
-    setBusy(true);try {const message=await request('sendMessage',{chat_id:chat.id,input_message_content:{'@type':'inputMessageText',text:{'@type':'formattedText',text}}});store.current.ingest(message);if(text===draft)setDraft('');refresh();}catch(e){error(e)}finally{setBusy(false)}
+    setBusy(true);try {const message=await request('sendMessage',{chat_id:chat.id,input_message_content:{'@type':'inputMessageText',text:{'@type':'formattedText',text}}});store.current.ingest(message);if(current.current?.id===chat.id)setDraft(value=>value===text?'':value);refresh();}catch(e){error(e)}finally{setBusy(false)}
+  }
+  async function attach() {
+    const chat=current.current;if(!chat||busy||(prefs.current[chat.id]||defaults).category==='alerts')return;
+    setBusy(true);
+    try {
+      const picked=await DocumentPicker.getDocumentAsync({copyToCacheDirectory:true,multiple:false});
+      if(picked.canceled||!picked.assets?.[0])return;
+      const caption=draft,path=localFilePath(picked.assets[0].uri);
+      const message=await request('sendMessage',{chat_id:chat.id,input_message_content:documentContent(path,caption)});
+      store.current.ingest(message);if(current.current?.id===chat.id)setDraft(value=>value===caption?'':value);refresh();
+    }catch(e){error(e)}finally{setBusy(false)}
   }
   async function safeURL(url:string) {try{const scheme=new URL(url).protocol;if(!['https:','http:','tg:'].includes(scheme))throw Error('Unsupported link');await Linking.openURL(url);}catch(e){error(e)}}
   async function inline(message:Td,button:Td) {
@@ -201,7 +213,7 @@ function Main() {
             {message.reply_markup?.['@type']==='replyMarkupShowKeyboard'&&pref.category==='chat'&&message.reply_markup.rows.map((row:Td[],i:number)=><View key={i}>{row.map((b,j)=>b.type['@type']==='keyboardButtonTypeText'?<View key={j}>{button(b.text,()=>{void send(b.text)},busy)}</View>:<Text key={j}>{b.text}: permission action is not supported yet</Text>)}</View>)}
           </View>})}
         </ScrollView>
-        {pref.category==='chat'&&<>{input(draft,setDraft,'Message')}{draft.startsWith('/')&&commands.filter(c=>('/'+c.command).startsWith(draft.split(' ')[0])).map(c=><Pressable key={c.command} onPress={()=>setDraft('/'+c.command+' ')} style={{padding:8}}><Text style={{color:colors.accent}}>/{c.command} — {c.description}</Text></Pressable>)}{button('Send',()=>{void send()},busy||!draft.trim())}{!messages.length&&button('Start bot',()=>{void send('/start')},busy)}</>}
+        {pref.category==='chat'&&<>{input(draft,setDraft,'Message')}{draft.startsWith('/')&&commands.filter(c=>('/'+c.command).startsWith(draft.split(' ')[0])).map(c=><Pressable key={c.command} onPress={()=>setDraft('/'+c.command+' ')} style={{padding:8}}><Text style={{color:colors.accent}}>/{c.command} — {c.description}</Text></Pressable>)}{button('Send',()=>{void send()},busy||!draft.trim())}{button('Attach file',()=>{void attach()},busy)}{!messages.length&&button('Start bot',()=>{void send('/start')},busy)}</>}
       </>:<>
         <Text style={{fontSize:20,color:colors.ink,marginVertical:10}}>Only bots. No groups, no noise.</Text>
         <View style={{flexDirection:'row',gap:8}}>{(['all','chat','alerts'] as const).map(value=><View key={value}>{button(value===filter?'✓ '+value:value,()=>setFilter(value))}</View>)}</View>

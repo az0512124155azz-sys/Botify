@@ -143,3 +143,15 @@ export function botLink(input: string): { username: string; parameter?: string }
   if (parameter && !/^[a-zA-Z0-9_-]{1,64}$/.test(parameter)) throw new Error('Invalid start parameter');
   return { username, parameter };
 }
+
+/** Convert only picker-produced local URIs; TDLib cannot read Android content providers directly. */
+export function localFilePath(uri: string): string {
+  const url = new URL(uri);
+  if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) throw new Error('The selected file must be copied to local storage');
+  const path = decodeURIComponent(url.pathname);
+  if (!path.startsWith('/') || path.endsWith('/') || path.includes('\0')) throw new Error('Invalid local file path');
+  return path;
+}
+export function documentContent(path: string, caption = ''): Td {
+  return { '@type': 'inputMessageDocument', document: { '@type': 'inputDocument', document: { '@type': 'inputFileLocal', path }, disable_content_type_detection: false }, caption: { '@type': 'formattedText', text: caption, entities: [] } };
+}

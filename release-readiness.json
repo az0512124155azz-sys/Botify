@@ -1,0 +1,14 @@
+{
+  "version": "0.4.0",
+  "native_run_id": null,
+  "tested_commit": null,
+  "gates": {
+    "platform_builds_verified": false,
+    "telegram_login_e2e_verified": false,
+    "bot_chats_e2e_verified": false,
+    "callbacks_commands_media_e2e_verified": false,
+    "notifications_verified": false,
+    "signed_installable_ipa_verified": false,
+    "remaining_features_complete": false
+  }
+}

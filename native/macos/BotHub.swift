@@ -155,6 +155,15 @@ private struct Message: Identifiable {
     let text = draft
     let sent = try await request("sendMessage", ["chat_id":bot.id,"input_message_content":["@type":"inputMessageText","text":["@type":"formattedText","text":text]]]); upsert(sent); if draft == text { draft = "" }; refresh()
   }
+  func attach() async throws {
+    guard let bot = selected, pref.category == "chat" else { return }
+    let panel = NSOpenPanel(); panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    let caption = draft
+    let content: JSON = ["@type":"inputMessageDocument", "document":["@type":"inputDocument", "document":["@type":"inputFileLocal", "path":url.path], "disable_content_type_detection":false], "caption":["@type":"formattedText", "text":caption]]
+    let message = try await request("sendMessage", ["chat_id":bot.id, "input_message_content":content])
+    upsert(message); if selected?.id == bot.id && draft == caption { draft = "" }; refresh()
+  }
   func inline(_ button: JSON, _ message: Message) async throws {
     guard let action = button["type"] as? JSON else { return }
     if type(action) == "inlineKeyboardButtonTypeUrl" { try openURL(action["url"] as? String ?? ""); return }
@@ -270,6 +279,7 @@ private struct Message: Identifiable {
           HStack {
             TextField("Message", text: $model.draft).onSubmit { model.run { try await model.send() } }
             Button("Send") { model.run { try await model.send() } }
+            Button("Attach file") { model.run { try await model.attach() } }
           }
         }
       }

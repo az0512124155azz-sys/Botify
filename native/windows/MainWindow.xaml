@@ -12,5 +12,5 @@
 <WrapPanel Grid.Row="1" Margin="0,10"><Button Name="Category" Content="Interactive" Click="CategoryClicked" Padding="8"/><Button Name="Noise" Content="Notifications: quiet" Click="NoiseClicked" Padding="8" Margin="8,0"/><Button Content="Older messages" Click="OlderClicked" Padding="8"/></WrapPanel>
 <ComboBox Grid.Row="2" Name="Commands" DisplayMemberPath="Label" SelectionChanged="CommandSelected" Margin="0,0,0,8"/>
 <ScrollViewer Name="HistoryScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto"><StackPanel Name="Messages"/></ScrollViewer>
-<DockPanel Grid.Row="4" Name="ComposePanel" Margin="0,12,0,0"><Button DockPanel.Dock="Right" Name="Send" Content="Send" Padding="12,8" Click="SendClicked"/><TextBox Name="Composer" TextChanged="DraftChanged" Padding="10" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/></DockPanel>
+<DockPanel Grid.Row="4" Name="ComposePanel" Margin="0,12,0,0"><Button DockPanel.Dock="Right" Content="Attach file" Click="AttachClicked" Padding="12,8" Margin="8,0,0,0"/><Button DockPanel.Dock="Right" Name="Send" Content="Send" Padding="12,8" Click="SendClicked"/><TextBox Name="Composer" TextChanged="DraftChanged" Padding="10" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"/></DockPanel>
 </Grid></Grid></Grid></Window>

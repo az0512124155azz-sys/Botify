@@ -1,0 +1,65 @@
+name: Publish verified BotHub release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, work/bothub-tdlib]
+    paths: [release-readiness.json]
+permissions:
+  contents: read
+concurrency:
+  group: bothub-release
+  cancel-in-progress: false
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.gates.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: gates
+        name: Require every verified release gate
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          value = json.loads(Path('release-readiness.json').read_text())
+          expected = {'platform_builds_verified', 'telegram_login_e2e_verified', 'bot_chats_e2e_verified', 'callbacks_commands_media_e2e_verified', 'notifications_verified', 'signed_installable_ipa_verified', 'remaining_features_complete'}
+          gates = value.get('gates', {})
+          ready = set(gates) == expected and all(gates[k] is True for k in expected)
+          ready = ready and bool(re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', value.get('version', '')))
+          ready = ready and bool(re.fullmatch(r'[0-9a-f]{40}', value.get('tested_commit') or '')) and isinstance(value.get('native_run_id'), int)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('ready=' + str(bool(ready)).lower() + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Release gates verified.\n' if ready else 'Release is not ready; no public release will be created.\n')
+          PY
+  publish:
+    needs: readiness
+    if: needs.readiness.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact successful native build and download artifacts
+        run: |
+          python3 scripts/verify-release-run.py
+          gh run download "$(python3 -c 'import json; print(json.load(open("release-readiness.json"))["native_run_id"])')" --repo "$GITHUB_REPOSITORY" --dir .build/release-artifacts
+      - name: Prepare all four platforms and checksums
+        run: python3 scripts/prepare-release.py
+      - name: Upload as draft, then publish complete release
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("release-readiness.json"))["version"])')
+          tested=$(python3 -c 'import json; print(json.load(open("release-readiness.json"))["tested_commit"])')
+          tag="v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft > .build/existing-release.json 2>/dev/null; then
+            python3 -c 'import json; assert json.load(open(".build/existing-release.json"))["isDraft"], "A published release already exists; refusing to overwrite it"'
+            gh release upload "$tag" .build/release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" .build/release-assets/* --repo "$GITHUB_REPOSITORY" --target "$tested" --title "BotHub $version" --draft --notes-file .build/release-notes.md
+          fi
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url --jq .url

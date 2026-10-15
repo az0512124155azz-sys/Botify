@@ -7,7 +7,11 @@
     "orientation": "portrait",
     "android": {
       "package": "com.botify.bothub",
-      "allowBackup": false
+      "allowBackup": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/bothub-icon.png",
+        "backgroundColor": "#F5F8FA"
+      }
     },
     "ios": {
       "bundleIdentifier": "com.botify.bothub",
@@ -15,6 +19,7 @@
     },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "icon": "./assets/bothub-icon.png"
   }
 }

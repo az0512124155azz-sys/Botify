@@ -66,3 +66,9 @@ test('preserves full-precision TDLib string ordering',()=>{
  s.ingest({'@type':'user',id,type:{'@type':'userTypeBot'}});s.ingest({'@type':'chat',id,title:String(id),type:{'@type':'chatTypePrivate',user_id:id},positions:[{list:{'@type':'chatListMain'},order}]});}
  assert.deepEqual(s.getBots().map(b=>b.id),[2,1]);
 });
+test('normalizes picker paths and rejects remote or content-provider paths',()=>{
+ const {localFilePath,documentContent}=require('../.test-build/tdlib.js');
+ assert.equal(localFilePath('file:///data/user/0/cache/a%20b.pdf'),'/data/user/0/cache/a b.pdf');
+ for(const uri of ['https://example.com/a.pdf','content://documents/a','file://server/a.pdf','file:///data/cache/','file:///a%00b'])assert.throws(()=>localFilePath(uri));
+ const content=documentContent('/tmp/report.pdf','caption');assert.equal(content.document['@type'],'inputDocument');assert.equal(content.document.document['@type'],'inputFileLocal');assert.equal(content.caption.text,'caption');
+});

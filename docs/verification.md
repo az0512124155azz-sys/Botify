@@ -7,7 +7,7 @@ Date: 2026-10-15. Baseline: main commit `26ee40a750a9fea5b0b40ec5f24a138a4ea6dd0
 | Check | Result | Scope |
 |---|---|---|
 | `npm run check` | Pass | React Native UI and protocol TypeScript |
-| `npm test` | 13 passed | Request correlation/cancellation/timeouts/errors, bot filtering with both user/chat update orders, history/edit/delete races, send acknowledgment, password/email handling, deep links, media IDs, 64-bit ordering |
+| `npm test` | 14 protocol + 2 release guard tests passed | Request correlation/cancellation/timeouts/errors, bot filtering with both user/chat update orders, history/edit/delete races, send acknowledgment, password/email handling, deep links, media IDs, 64-bit ordering, picker path validation; release guards reject unsigned IPA and missing Windows native DLL |
 | `npx expo install --check` | Pass | Expo SDK dependency compatibility; React Native updated to 0.81.5 |
 | `npx expo export --platform android` | Pass | Hermes JS bundle, not an APK or native bridge execution |
 | `npx expo export --platform ios` | Pass | Hermes JS bundle, not an iOS app or native bridge execution |
@@ -22,8 +22,8 @@ Date: 2026-10-15. Baseline: main commit `26ee40a750a9fea5b0b40ec5f24a138a4ea6dd0
 
 ## Not verified / blocked
 
-- APK, full WPF EXE, SwiftUI DMG and iOS archive have not yet completed builds on these changes.
-- Windows/macOS UI compilation, native Expo bridge compilation/linking and device installation remain unverified.
+- Full Windows WPF and macOS SwiftUI compilation passed in GitHub Actions. Platform builds are now compiling pinned TDLib; final APK/EXE/DMG/iOS archive packaging is still pending.
+- Native Expo bridge compilation/linking and device installation remain unverified. New file-picker/branding changes passed local checks and will receive another platform build after native-library caches finish.
 - No account login, real bot conversation, callback, command, file or notification E2E pass has been established.
 - Closed-app APNs/FCM delivery is not implemented.
 - An installable IPA still requires Apple signing/provisioning; the workflow's unsigned IPA is explicitly non-installable.

@@ -19,9 +19,13 @@ This is an implementation in progress, not a verified release.
 3. Exercise third-party bot discovery, history, live edits/deletions, send, commands, callbacks, files, logout/restart and preference persistence on devices. Protocol tests are not substitutes for these checks.
 4. Implement and validate APNs/FCM registration and native background push processing. Current foreground notifications are not a closed-app alarm service. No paid relay was added.
 5. Implement the remaining keyboard actions: password callbacks, login URL authorization, web apps, switch-inline queries, phone/location/poll requests, and payment flows. These are currently explicitly reported as unsupported.
-6. Complete media composition/upload, inline playback, rich text entities, reconnect UI, and desktop reply-keyboard parity.
+6. Verify the new file attachment composer on devices; complete inline photo/video composition/playback, rich text entities, reconnect UI, and desktop reply-keyboard parity.
 7. Provide Apple signing/provisioning for an installable IPA. The configured unsigned archive/IPA is an inspection artifact and cannot be presented as installable.
 8. Test EXE and DMG on Windows/macOS machines. macOS ad-hoc signing is not notarization; Windows output is a self-contained app directory with its native DLL.
 9. Review data migration from the previous owner-token dashboard. The main interface no longer polls bot-owner tokens, preventing conflicts with existing bot webhooks.
 
 Legacy platform build entry points now delegate to the TDLib packaging workflow. Use `TDLib platform builds` once the branch update is authorized.
+
+## Release publication
+
+The user explicitly requested uploading all installers to GitHub Releases once everything is ready. `release-readiness.json` remains false for every unverified release gate. The release workflow checks the exact successful native run and all platform jobs, rejects unsigned IPA and Windows packages missing TDLib, writes SHA256 checksums, and publishes only after uploading every asset to a draft. Do not flip gates merely because compilation passes.

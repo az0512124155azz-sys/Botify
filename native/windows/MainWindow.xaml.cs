@@ -116,6 +116,14 @@ public partial class MainWindow : Window
     private static void ProcessStart(string file,string? args=null)=>System.Diagnostics.Process.Start(new ProcessStartInfo(file,args??""){UseShellExecute=true});
     private static void OpenUrl(string url){if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Scheme is not ("http" or "https" or "tg"))throw new InvalidOperationException("Unsupported link");ProcessStart(url);}
     private async void SendClicked(object sender,RoutedEventArgs e)=>await Run(async()=>{if(selected==0||string.IsNullOrWhiteSpace(Composer.Text)||Pref(selected).Category=="alerts")return;Send.IsEnabled=false;try{var text=Composer.Text;var result=await Request("sendMessage",new {chat_id=selected,input_message_content=new {@type="inputMessageText",text=new {@type="formattedText",text}}});Upsert(result);if(Composer.Text==text)Composer.Clear();RenderMessages();}finally{Send.IsEnabled=true;}});
+    private async void AttachClicked(object sender,RoutedEventArgs e)=>await Run(async()=>{
+        if(selected==0||Pref(selected).Category=="alerts")return;
+        var picker=new Microsoft.Win32.OpenFileDialog {Title="Send a file",CheckFileExists=true,Multiselect=false};
+        if(picker.ShowDialog(this)!=true)return;
+        var id=selected;var caption=Composer.Text;
+        var result=await Request("sendMessage",new {chat_id=id,input_message_content=new {@type="inputMessageDocument",document=new {@type="inputDocument",document=new {@type="inputFileLocal",path=picker.FileName},disable_content_type_detection=false},caption=new {@type="formattedText",text=caption}}});
+        Upsert(result);if(selected==id&&Composer.Text==caption)Composer.Clear();RenderMessages();
+    });
     private void UpdateCommands(){if(Commands==null)return;var prefix=Composer?.Text??"";Commands.Items.Clear();foreach(var command in allCommands.Where(c=>!prefix.StartsWith("/")||c.Value.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)))Commands.Items.Add(command);}
     private void DraftChanged(object sender,TextChangedEventArgs e)=>UpdateCommands();
     private void CommandSelected(object sender,SelectionChangedEventArgs e){if(Commands.SelectedItem is Command c){Composer.Text=c.Value+" ";Composer.Focus();Composer.CaretIndex=Composer.Text.Length;}}

@@ -6,13 +6,14 @@
   "scripts": {
     "start": "expo start",
     "check": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.cjs",
+    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.cjs && python3 -m unittest discover -s tests -p \"test_*.py\"",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },
   "dependencies": {
     "expo": "~54.0.0",
     "expo-crypto": "~15.0.8",
+    "expo-document-picker": "~14.0.8",
     "expo-notifications": "~0.32.12",
     "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.8",
