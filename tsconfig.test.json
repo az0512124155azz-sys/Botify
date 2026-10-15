@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"ES2022","module":"commonjs","strict":true,"skipLibCheck":true,"outDir":".test-build"},"include":["src/telegram/tdlib.ts"]}

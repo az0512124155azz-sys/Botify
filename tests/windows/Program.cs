@@ -1,0 +1,10 @@
+using BotHub;
+await using var client=new TdClient();
+var auth=await client.Request("getAuthorizationState");
+if(auth.GetProperty("@type").GetString()!="authorizationStateWaitTdlibParameters")throw new Exception("Unexpected initial authorization state");
+var version=await client.Request("getOption",new {name="version"});
+if(version.GetProperty("@type").GetString()!="optionValueString")throw new Exception("Bundled TDLib did not return its version");
+var a=client.Request("getOption",new {name="version"});
+var b=client.Request("getOption",new {name="commit_hash"});
+await Task.WhenAll(a,b);
+Console.WriteLine("PASS: bundled TDLib initialized, authorization state and correlated requests returned: "+version.GetProperty("value").GetString());

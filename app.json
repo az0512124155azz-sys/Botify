@@ -3,10 +3,11 @@
     "name": "BotHub",
     "slug": "bothub",
     "scheme": "bothub",
-    "version": "0.2.0",
+    "version": "0.4.0",
     "orientation": "portrait",
     "android": {
-      "package": "com.botify.bothub"
+      "package": "com.botify.bothub",
+      "allowBackup": false
     },
     "ios": {
       "bundleIdentifier": "com.botify.bothub",
