@@ -42,11 +42,12 @@ public partial class MainWindow : Window
                 });
             }
             else if(state=="authorizationStateWaitEncryptionKey")client?.Send("checkDatabaseEncryptionKey",new {encryption_key=""});
-            else if(state=="authorizationStateReady"){Status.Text="Connected to Telegram";client?.Send("loadChats",new {chat_list=new {@type="chatListMain"},limit=100});}
+            else if(state=="authorizationStateReady"){Status.Text="Connected to Telegram";client?.Send("getChats",new {chat_list=new {@type="chatListMain"},limit=100});}
             return;
         }
+        if(kind=="chats"){foreach(var c in item.GetProperty("chat_ids").EnumerateArray())client?.Send("getChat",new {chat_id=c.GetInt64()});return;}
         if(kind=="updateNewChat"){var chat=item.GetProperty("chat");ReadChat(chat);return;}
-        if(kind=="messages"){foreach(var message in item.GetProperty("messages").EnumerateArray()){if(message.TryGetProperty("content",out var content)&&content.TryGetProperty("text",out var t2))Messages.Items.Add(t2.GetProperty("text").GetString());}return;}
+        
         if(kind=="updateUser"){
             var user=item.GetProperty("user");
             if(user.TryGetProperty("type",out var ut)&&ut.GetProperty("@type").GetString()=="userTypeBot"){
@@ -55,7 +56,7 @@ public partial class MainWindow : Window
             }
         }
         if(kind=="chat"){ReadChat(item);return;}
-        if(kind=="messages"){foreach(var m in item.GetProperty("messages").EnumerateArray()){if(m.ValueKind==JsonValueKind.Null)continue;if(m.TryGetProperty("content",out var content)&&content.TryGetProperty("text",out var body))Messages.Items.Insert(0,body.GetProperty("text").GetString());}return;}
+        if(kind=="messages"){foreach(var m in item.GetProperty("messages").EnumerateArray()){if(m.ValueKind==JsonValueKind.Null)continue;if(m.TryGetProperty("chat_id",out var mid)&&mid.GetInt64()!=selected)continue;if(m.TryGetProperty("content",out var content)&&content.TryGetProperty("text",out var body))Messages.Items.Insert(0,body.GetProperty("text").GetString());}return;}
         if(kind=="updateNewMessage"){
             var m=item.GetProperty("message");if(m.GetProperty("chat_id").GetInt64()!=selected)return;
             if(m.TryGetProperty("content",out var c)&&c.TryGetProperty("text",out var text)) Messages.Items.Add(text.GetProperty("text").GetString());
