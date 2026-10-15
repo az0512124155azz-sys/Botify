@@ -1,31 +1,33 @@
-# BotHub — Telegram Bot Operations Client
+# BotHub — Telegram-focused mobile client
 
-React Native / Expo app for Android and iOS. Version 0.2.0.
+Android/iOS mobile application source (React Native + Expo).
 
-## Run
+## Current mode: bot owner dashboard
+- Register and authenticate an **owned** bot using its BotFather token.
+- Encrypted on-device token storage through Expo SecureStore.
+- Filter owned bots into interactive and alert-only feeds.
+- Read incoming updates while the app runs in the foreground (Bot API `getUpdates`).
+- Reply as an owned bot to a known chat ID.
+- Retrieve slash commands, inspect inline keyboards and open a bot link in Telegram.
+- Store per-bot loud/quiet/off preferences.
+
+## Start
 ```bash
 npm install
+npm run check
 npx expo start
 ```
 
-Install Expo Go on your phone and scan the local QR code.
+## Build
+GitHub Actions > Android APK > Run workflow. Artifact is a **debug** APK if the build passes.
 
-## What works in source
-- Validate Telegram BotFather token with `getMe`
-- Separate owned bots into interactive and alert-only views
-- Save tokens individually in secure device storage
-- Foreground `getUpdates` polling and inbox
-- Tap received chat to pick numeric chat ID, send text as bot
-- Save per-bot loud/quiet/off preferences and remove credentials
+## Important functional boundaries
+Bot API is **not** a Telegram user client. This code cannot authenticate a Telegram user, read their conversations with third-party bots, or press their inline buttons. A true bot-only Telegram client requires **TDLib** and Telegram user credentials/authorization; that mode is **not built yet**.
 
-## Not implemented
-- Telegram **user account** login and ordinary conversations with third-party bots: requires TDLib/MTProto, not Bot API.
-- Reliable background notifications/sound and iOS critical alerts: requires additional platform entitlements/push infrastructure.
-- Full inline keyboards, slash command completion, Telegram deep links, media.
-- GitHub OAuth synchronization and release APK/IPA.
-- End-to-end tested mobile builds.
+Polling an owned bot with `getUpdates` can conflict with any existing webhook or other running poller. Do not run this app as a second consumer for a production incident bot.
 
-**Important:** Bots already operated by a webhook or another long poller should not be polled here at the same time. This app doesn't delete webhook configuration.
+Local foreground notifications are **not** reliable closed-app alerts. Critical background alerts need a server-side webhook / push bridge (FCM, APNs), valid signing and platform permissions. This implementation does not provide them.
 
-## Builds
-See `eas.json` for an optional development APK profile. A signed APK requires a working Expo build environment and signing setup. Do not embed bot tokens, GitHub PATs or other credentials in source code.
+No GitHub login is or will be required inside BotHub. GitHub hosts the source code and build workflows only.
+
+No production end-to-end test, signed release APK, or IPA has been verified yet.
