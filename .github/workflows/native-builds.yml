@@ -39,11 +39,11 @@ jobs:
       - name: Compile Windows UI before the native dependency
         run: dotnet build native/windows/BotHub.csproj -c Release
       - name: Cache native TDLib
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         id: td-cache
         with:
           path: .build/windows-runtime
-          key: windows-x64-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+          key: windows-x64-tdlib-v2-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - name: Compile pinned TDLib with static OpenSSL
         if: steps.td-cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -61,6 +61,11 @@ jobs:
           New-Item -ItemType Directory -Force .build/windows-runtime
           Get-ChildItem .build/td-win -Recurse -Filter tdjson.dll | Copy-Item -Destination .build/windows-runtime
           if (!(Test-Path .build/windows-runtime/tdjson.dll)) { throw 'TDLib DLL missing' }
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: .build/windows-runtime
+          key: windows-x64-tdlib-v2-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - name: Publish self-contained EXE with TDLib
         shell: pwsh
         run: |
@@ -89,13 +94,18 @@ jobs:
           cp scripts/macos-Info.plist dist/BotHub.app/Contents/Info.plist
           plutil -lint dist/BotHub.app/Contents/Info.plist
       - run: brew install gperf openssl@3 cmake
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: td-cache
         with:
           path: dist/BotHub.app/Contents/Frameworks
           key: macos-arm64-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - if: steps.td-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-tdlib-macos.sh
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: dist/BotHub.app/Contents/Frameworks
+          key: macos-arm64-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - name: Native dependency test and package
         run: |
           python3 scripts/smoke-tdlib.py dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
@@ -122,9 +132,11 @@ jobs:
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: '17'}
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: sudo apt-get update && sudo apt-get install -y gperf php ninja-build
       - run: npm ci
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: td-cache
         with:
           path: |
@@ -133,6 +145,13 @@ jobs:
           key: android-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - if: steps.td-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-tdlib-android.sh
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            modules/bothub-tdlib/android/src/main/jniLibs
+            modules/bothub-tdlib/android/src/main/java/org
+          key: android-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - run: npx expo prebuild --platform android
       - name: Compile standalone APK
         working-directory: android
@@ -161,13 +180,18 @@ jobs:
         with: {node-version: '22', cache: npm}
       - run: brew install gperf coreutils cmake
       - run: npm ci
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: td-cache
         with:
           path: modules/bothub-tdlib/ios/libtdjson.xcframework
           key: ios-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - if: steps.td-cache.outputs.cache-hit != 'true'
         run: bash scripts/build-tdlib-ios.sh
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: modules/bothub-tdlib/ios/libtdjson.xcframework
+          key: ios-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - run: npx expo prebuild --platform ios
       - name: Compile device archive (unsigned)
         run: xcodebuild -workspace ios/BotHub.xcworkspace -scheme BotHub -configuration Release -destination 'generic/platform=iOS' -archivePath .build/BotHub.xcarchive CODE_SIGNING_ALLOWED=NO archive

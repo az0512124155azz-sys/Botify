@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export CMAKE_BUILD_PARALLEL_LEVEL=2
 root=$(cd "$(dirname "$0")/.." && pwd)
 bash "$root/scripts/fetch-tdlib.sh"
 cd "$root/.build/td/example/android"

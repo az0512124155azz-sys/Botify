@@ -189,55 +189,122 @@ private struct Message: Identifiable {
   }
   func shutdown() async { await client?.close() }
 }
-private struct BotHubView: View {
+@MainActor private struct BotHubView: View {
   @StateObject private var model = BotModel()
   var body: some View {
-    VStack(alignment:.leading, spacing:12) {
-      Text("BotHub").font(.system(size:30,weight:.bold)); Text(model.status).foregroundStyle(.secondary).textSelection(.enabled)
+    VStack(alignment: .leading, spacing: 12) {
+      Text("BotHub").font(.system(size: 30, weight: .bold))
+      Text(model.status).foregroundStyle(.secondary).textSelection(.enabled)
       if !model.started {
-        TextField("Telegram API ID",text:$model.apiId); SecureField("Telegram API hash",text:$model.apiHash)
+        TextField("Telegram API ID", text: $model.apiId)
+        SecureField("Telegram API hash", text: $model.apiHash)
         Button("Connect Telegram") { model.run { try await model.connect() } }.disabled(model.busy)
       } else if model.auth != "authorizationStateReady" {
-        Text(model.auth.replacingOccurrences(of:"authorizationStateWait",with:"Enter ")); SecureField("Phone, code, email or 2FA password",text:$model.credential)
+        Text(model.auth.replacingOccurrences(of: "authorizationStateWait", with: "Enter "))
+        SecureField("Phone, code, email or 2FA password", text: $model.credential)
         Button("Continue") { model.run { try await model.login() } }
-        if model.auth == "authorizationStateWaitCode" || model.auth == "authorizationStateWaitEmailCode" { Button("Resend code") { model.run { _ = try await model.request("resendAuthenticationCode") } } }
+        if model.auth == "authorizationStateWaitCode" || model.auth == "authorizationStateWaitEmailCode" {
+          Button("Resend code") { model.run { _ = try await model.request("resendAuthenticationCode") } }
+        }
       } else {
         HSplitView {
-          VStack {
-            Picker("Feed",selection:$model.filter) { Text("All").tag("all"); Text("Interactive").tag("chat"); Text("Alerts").tag("alerts") }.pickerStyle(.segmented)
-            List(model.bots.filter {model.filter == "all" || (model.preferences[String($0.id)] ?? Preference()).category == model.filter}) { bot in Button(bot.title) { model.run { try await model.select(bot) } }.buttonStyle(.plain) }
-            TextField("@bot or t.me link",text:$model.botLink)
-            Button("Open bot") { model.run { try await model.addBot() } }
-            Button("Refresh") { model.run { try await model.loadChats() } }
-            Button("Log out") { model.run { _ = try await model.request("logOut") } }
-          }.frame(minWidth:220,idealWidth:260,maxWidth:320)
-          VStack(alignment:.leading) {
-            Text(model.selected?.title ?? "Only bots. No groups, no noise.").font(.title2)
-            if model.selected != nil {
-              HStack { Button(model.pref.category == "chat" ? "Interactive" : "Alerts only") { model.changePreference(category:true) }; Button("Notifications: \(model.pref.noise)") { model.changePreference(category:false) }; Button("Older messages") { model.run { try await model.loadHistory(older:true) } } }
-              ScrollView { LazyVStack(alignment:.leading) { ForEach(model.messages) { message in
-                VStack(alignment:.leading,spacing:8) {
-                  Text(message.text).textSelection(.enabled)
-                  if message.media != nil { Button("Download / reveal attachment") { model.run { try await model.download(message) } } }
-                  ForEach(message.buttons.indices,id:\.self) { row in HStack { ForEach(message.buttons[row].indices,id:\.self) { index in let b = message.buttons[row][index]; Button(b["text"] as? String ?? "Button") { model.run { try await model.inline(b,message) } } } }
-                }.padding(12).frame(maxWidth:.infinity,alignment:.leading).background(Color.white).cornerRadius(10)
-              } } }
-              if model.pref.category == "chat" {
-                if model.draft.hasPrefix("/") { ForEach(model.commands.indices,id:\.self) { index in let command = model.commands[index]["command"] as? String ?? ""; if ("/"+command).hasPrefix(model.draft) { Button("/"+command) { model.draft = "/"+command+" " } } } }
-                HStack { TextField("Message",text:$model.draft).onSubmit { model.run { try await model.send() } }; Button("Send") { model.run { try await model.send() } } }
-              }
-            }
-          }.padding(.leading,14).frame(minWidth:360)
+          BotSidebar(model: model).frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+          BotConversation(model: model).padding(.leading, 14).frame(minWidth: 360)
         }
       }
-    }.padding(24).frame(minWidth:760,minHeight:560).background(Color(red:0.96,green:0.97,blue:0.98)).tint(Color(red:0.03,green:0.49,blue:0.54))
+    }
+    .padding(24)
+    .frame(minWidth: 760, minHeight: 560)
+    .background(Color(red: 0.96, green: 0.97, blue: 0.98))
+    .tint(Color(red: 0.03, green: 0.49, blue: 0.54))
     .onAppear { BotHubAppDelegate.shutdown = { await model.shutdown() } }
   }
 }
-final class BotHubAppDelegate: NSObject, NSApplicationDelegate {
+@MainActor private struct BotSidebar: View {
+  @ObservedObject var model: BotModel
+  private var visibleBots: [Bot] {
+    model.bots.filter { model.filter == "all" || (model.preferences[String($0.id)] ?? Preference()).category == model.filter }
+  }
+  var body: some View {
+    VStack {
+      Picker("Feed", selection: $model.filter) {
+        Text("All").tag("all")
+        Text("Interactive").tag("chat")
+        Text("Alerts").tag("alerts")
+      }.pickerStyle(.segmented)
+      List(visibleBots) { bot in
+        Button(bot.title) { model.run { try await model.select(bot) } }.buttonStyle(.plain)
+      }
+      TextField("@bot or t.me link", text: $model.botLink)
+      Button("Open bot") { model.run { try await model.addBot() } }
+      Button("Refresh") { model.run { try await model.loadChats() } }
+      Button("Log out") { model.run { _ = try await model.request("logOut") } }
+    }
+  }
+}
+@MainActor private struct BotConversation: View {
+  @ObservedObject var model: BotModel
+  var body: some View {
+    VStack(alignment: .leading) {
+      Text(model.selected?.title ?? "Only bots. No groups, no noise.").font(.title2)
+      if model.selected != nil {
+        HStack {
+          Button(model.pref.category == "chat" ? "Interactive" : "Alerts only") { model.changePreference(category: true) }
+          Button("Notifications: \(model.pref.noise)") { model.changePreference(category: false) }
+          Button("Older messages") { model.run { try await model.loadHistory(older: true) } }
+        }
+        ScrollView {
+          LazyVStack(alignment: .leading) {
+            ForEach(model.messages) { message in BotMessageRow(model: model, message: message) }
+          }
+        }
+        if model.pref.category == "chat" {
+          if model.draft.hasPrefix("/") {
+            ForEach(model.commands.indices, id: \.self) { index in
+              let command = model.commands[index]["command"] as? String ?? ""
+              if ("/" + command).hasPrefix(model.draft) {
+                Button("/" + command) { model.draft = "/" + command + " " }
+              }
+            }
+          }
+          HStack {
+            TextField("Message", text: $model.draft).onSubmit { model.run { try await model.send() } }
+            Button("Send") { model.run { try await model.send() } }
+          }
+        }
+      }
+    }
+  }
+}
+@MainActor private struct BotMessageRow: View {
+  @ObservedObject var model: BotModel
+  let message: Message
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(message.text).textSelection(.enabled)
+      if message.media != nil {
+        Button("Download / reveal attachment") { model.run { try await model.download(message) } }
+      }
+      ForEach(message.buttons.indices, id: \.self) { row in
+        HStack {
+          ForEach(message.buttons[row].indices, id: \.self) { index in
+            let button = message.buttons[row][index]
+            Button(button["text"] as? String ?? "Button") { model.run { try await model.inline(button, message) } }
+          }
+        }
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.white)
+    .cornerRadius(10)
+  }
+}
+@MainActor final class BotHubAppDelegate: NSObject, NSApplicationDelegate {
   static var shutdown: (() async -> Void)?
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-    Task { await Self.shutdown?(); sender.reply(toApplicationShouldTerminate:true) }; return .terminateLater
+    Task { await Self.shutdown?(); sender.reply(toApplicationShouldTerminate: true) }
+    return .terminateLater
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
