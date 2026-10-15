@@ -1,24 +1,58 @@
-name: Android APK
+name: Android APK - build and smoke test
 on:
   workflow_dispatch:
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - run: npm install
-      - run: npx expo prebuild --platform android --non-interactive
-      - run: chmod +x android/gradlew
-      - run: cd android && ./gradlew assembleDebug --no-daemon
-      - uses: actions/upload-artifact@v4
+      - name: Install and verify
+        run: |
+          npm install
+          npm run check
+      - name: Generate Android native project
+        run: npx expo prebuild --platform android --non-interactive
+      - name: Compile standalone debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Boot smoke test in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
         with:
-          name: BotHub-debug-apk
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell monkey -p com.botify.bothub -c android.intent.category.LAUNCHER 1
+            sleep 20
+            adb logcat -d -t 1500 > emulator-log.txt
+            if grep -E 'FATAL EXCEPTION|Unable to start activity' emulator-log.txt; then exit 1; fi
+            adb shell dumpsys activity activities | grep -E 'com.botify.bothub' || exit 1
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BotHub-emulator-logs
+          path: emulator-log.txt
+          if-no-files-found: ignore
+      - name: Upload APK only after passing smoke test
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BotHub-debug-tested
           path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
