@@ -63,6 +63,11 @@ class BotHubTdlibModule : Module() {
       client = TdPump.create { json -> sendEvent("onUpdate", mapOf("json" to json)) }
       mapOf("database" to database.absolutePath, "files" to files.absolutePath)
     }
+    Function("copyText") { text: String ->
+      val context = appContext.reactContext ?: error("Application context unavailable")
+      val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+      clipboard.setPrimaryClip(android.content.ClipData.newPlainText("BotHub", text))
+    }
     Function("send") { request: String ->
       val id = client ?: error("TDLib is not started")
       JsonClient.send(id, request)

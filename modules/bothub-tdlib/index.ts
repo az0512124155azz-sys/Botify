@@ -4,6 +4,7 @@ export type NativeTdlib = {
   start(): Promise<{ database: string; files: string }>;
   send(request: string): void;
   close(): Promise<void>;
+  copyText(text: string): void;
   addListener(event: 'onUpdate', listener: (event: { json: string }) => void): Subscription;
 };
 // Resolve only when connecting, so a missing native module produces a useful UI error.

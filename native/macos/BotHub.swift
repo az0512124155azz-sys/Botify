@@ -167,8 +167,24 @@ private struct Message: Identifiable {
   func inline(_ button: JSON, _ message: Message) async throws {
     guard let action = button["type"] as? JSON else { return }
     if type(action) == "inlineKeyboardButtonTypeUrl" { try openURL(action["url"] as? String ?? ""); return }
-    guard type(action) == "inlineKeyboardButtonTypeCallback" else { throw TdConnection.Failure.message("This button type is not supported yet: \(type(action))") }
-    let result = try await request("getCallbackQueryAnswer", ["chat_id":number(message.raw["chat_id"]),"message_id":message.id,"payload":["@type":"callbackQueryPayloadData","data":action["data"] as? String ?? ""]]); status = result["text"] as? String ?? "Action completed"
+    if type(action) == "inlineKeyboardButtonTypeCopyText" { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(action["text"] as? String ?? "", forType: .string); status = "Copied to clipboard"; return }
+    if type(action) == "inlineKeyboardButtonTypeUser" { try openURL("tg://user?id=\(number(action["user_id"]))"); return }
+    if type(action) == "inlineKeyboardButtonTypeDisabled" { return }
+    var payload: JSON
+    switch type(action) {
+    case "inlineKeyboardButtonTypeCallback": payload = ["@type":"callbackQueryPayloadData", "data":action["data"] as? String ?? ""]
+    case "inlineKeyboardButtonTypeCallbackWithPassword":
+      let alert = NSAlert(); alert.messageText = "Confirm bot action"; alert.informativeText = "Enter your Telegram two-step verification password for this action."
+      let field = NSSecureTextField(frame:NSRect(x:0,y:0,width:300,height:28)); alert.accessoryView = field
+      alert.addButton(withTitle:"Confirm"); alert.addButton(withTitle:"Cancel")
+      guard alert.runModal() == .alertFirstButtonReturn, !field.stringValue.isEmpty else { return }
+      payload = ["@type":"callbackQueryPayloadDataWithPassword", "data":action["data"] as? String ?? "", "password":field.stringValue]; field.stringValue = ""
+    case "inlineKeyboardButtonTypeCallbackGame":
+      guard let game = (message.raw["content"] as? JSON)?["game"] as? JSON, let name = game["short_name"] as? String else { throw TdConnection.Failure.message("Game information is missing") }
+      payload = ["@type":"callbackQueryPayloadGame", "game_short_name":name]
+    default: throw TdConnection.Failure.message("This button type is not supported yet: \(type(action))")
+    }
+    let result = try await request("getCallbackQueryAnswer", ["chat_id":number(message.raw["chat_id"]),"message_id":message.id,"payload":payload]); status = result["text"] as? String ?? "Action completed"
     if let url = result["url"] as? String, !url.isEmpty { try openURL(url) }
   }
   private func openURL(_ value: String) throws { guard let url = URL(string:value), ["https","http","tg"].contains(url.scheme ?? "") else { throw TdConnection.Failure.message("Unsupported URL") }; NSWorkspace.shared.open(url) }
@@ -299,7 +315,7 @@ private struct Message: Identifiable {
         HStack {
           ForEach(message.buttons[row].indices, id: \.self) { index in
             let button = message.buttons[row][index]
-            Button(button["text"] as? String ?? "Button") { model.run { try await model.inline(button, message) } }
+            Button(button["text"] as? String ?? "Button") { model.run { try await model.inline(button, message) } }.disabled(type(button["type"] as? JSON ?? [:]) == "inlineKeyboardButtonTypeDisabled")
           }
         }
       }
@@ -312,6 +328,38 @@ private struct Message: Identifiable {
 }
 @MainActor final class BotHubAppDelegate: NSObject, NSApplicationDelegate {
   static var shutdown: (() async -> Void)?
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    guard CommandLine.arguments.contains("--tdlib-smoke") else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 65) {
+      fputs("FAIL: Swift TDLib bridge timed out\n", stderr)
+      exit(1)
+    }
+    Task { @MainActor in
+      do {
+        let connection = try TdConnection()
+        var observedClosed = false
+        connection.onUpdate = { update in
+          let state = update["authorization_state"] as? [String: Any]
+          if state?["@type"] as? String == "authorizationStateClosed" { observedClosed = true }
+        }
+        let state = try await connection.request("getAuthorizationState")
+        guard state["@type"] as? String == "authorizationStateWaitTdlibParameters" else {
+          throw TdConnection.Failure.message("Unexpected initial authorization state")
+        }
+        let version = try await connection.request("getOption", ["name": "version"])
+        guard version["value"] as? String == "1.8.68" else {
+          throw TdConnection.Failure.message("Unexpected bundled TDLib version")
+        }
+        await connection.close()
+        guard observedClosed else { throw TdConnection.Failure.message("Native close event missing") }
+        print("PASS: bundled Swift TDLib bridge, version, initial auth and graceful close")
+        exit(0)
+      } catch {
+        fputs("FAIL: \(error.localizedDescription)\n", stderr)
+        exit(1)
+      }
+    }
+  }
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     Task { await Self.shutdown?(); sender.reply(toApplicationShouldTerminate: true) }
     return .terminateLater

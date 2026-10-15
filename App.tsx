@@ -32,6 +32,7 @@ function Main() {
   const [bots,setBots]=useState<BotChat[]>([]),[selected,setSelected]=useState<BotChat>(),[messages,setMessages]=useState<Td[]>([]),[draft,setDraft]=useState(''),[link,setLink]=useState('');
   const [filter,setFilter]=useState<'all'|'chat'|'alerts'>('all'),[preferences,setPreferences]=useState<Record<string,Preference>>({}),[commands,setCommands]=useState<Td[]>([]),[files,setFiles]=useState<Record<number,Td>>({});
   const store=useRef(new BotStore()),requests=useRef<TdRequests|null>(null),native=useRef<NativeTdlib|null>(null),current=useRef<BotChat|undefined>(undefined),prefs=useRef(preferences),ready=useRef(false),mounted=useRef(true),notified=useRef(new Set<string>()),commandGeneration=useRef(0),moreBusy=useRef(false),scroller=useRef<ScrollView>(null);
+  const [passwordAction,setPasswordAction]=useState<{message:Td;data:string}>(),[actionPassword,setActionPassword]=useState('');
   const autoScroll=useRef(true);
   const notificationSub=useRef<{remove():void}|undefined>(undefined);
   const error=(e: unknown)=>{ if(mounted.current) {setStatus(e instanceof Error?e.message:String(e)); Alert.alert('BotHub',e instanceof Error?e.message:String(e));} };
@@ -138,7 +139,7 @@ function Main() {
   async function login() {setBusy(true);try {const [method,args]=authRequest(auth,credential);await request(method,args);setCredential('');}catch(e){error(e)}finally{setBusy(false)}}
   async function select(chat:BotChat) {
     const previous=current.current;if(previous&&previous.id!==chat.id)void request('closeChat',{chat_id:previous.id}).catch(error);
-    autoScroll.current=true;current.current=chat;setSelected(chat);setDraft('');setCommands([]);setMessages(store.current.getMessages(chat.id));
+    setPasswordAction(undefined);setActionPassword('');autoScroll.current=true;current.current=chat;setSelected(chat);setDraft('');setCommands([]);setMessages(store.current.getMessages(chat.id));
     const generation=++commandGeneration.current;
     try {await request('openChat',{chat_id:chat.id});await history(chat);const full=await request('getUserFullInfo',{user_id:chat.userId});if(commandGeneration.current===generation)setCommands(full.bot_info?.commands||[]);}catch(e){error(e)}
   }
@@ -170,11 +171,22 @@ function Main() {
     try {const type=button.type;
       if(type['@type']==='inlineKeyboardButtonTypeUrl')return void safeURL(type.url);
       if(type['@type']==='inlineKeyboardButtonTypeCallback'||type['@type']==='inlineKeyboardButtonTypeCallbackWithPassword') {
-        if(type['@type'].endsWith('WithPassword'))return error(Error('This action requires password confirmation and is not supported yet'));
+        if(type['@type'].endsWith('WithPassword')){setActionPassword('');setPasswordAction({message,data:type.data});return;}
         const answer=await request('getCallbackQueryAnswer',{chat_id:message.chat_id,message_id:message.id,payload:{'@type':'callbackQueryPayloadData',data:type.data}});if(answer.text)Alert.alert('Bot',answer.text);if(answer.url)void safeURL(answer.url);
+      } else if(type['@type']==='inlineKeyboardButtonTypeCopyText') {native.current?.copyText(type.text);setStatus('Copied to clipboard');}
+      else if(type['@type']==='inlineKeyboardButtonTypeUser')void safeURL('tg://user?id='+type.user_id);
+      else if(type['@type']==='inlineKeyboardButtonTypeDisabled')return;
+      else if(type['@type']==='inlineKeyboardButtonTypeCallbackGame') {
+        const game=message.content?.game?.short_name;if(!game)throw Error('Game information is missing');
+        const answer=await request('getCallbackQueryAnswer',{chat_id:message.chat_id,message_id:message.id,payload:{'@type':'callbackQueryPayloadGame',game_short_name:game}});if(answer.url)void safeURL(answer.url);if(answer.text)Alert.alert('Bot',answer.text);
       } else if(type['@type']==='inlineKeyboardButtonTypeSwitchInline')error(Error('Inline query mode is not supported yet'));
       else error(Error('This button type is not supported yet: '+type['@type']));
     }catch(e){error(e)}
+  }
+  async function confirmPasswordAction() {
+    const action=passwordAction;if(!action||!actionPassword)return;
+    setBusy(true);const password=actionPassword;setActionPassword('');
+    try {const answer=await request('getCallbackQueryAnswer',{chat_id:action.message.chat_id,message_id:action.message.id,payload:{'@type':'callbackQueryPayloadDataWithPassword',data:action.data,password}});setPasswordAction(undefined);if(answer.text)Alert.alert('Bot',answer.text);if(answer.url)void safeURL(answer.url);}catch(e){error(e)}finally{setBusy(false)}
   }
   async function openMedia(message:Td) {
     try {let file=mediaFile(message);if(!file)return;file=files[file.id]||file;if(!file?.local?.is_downloading_completed)file=await request('downloadFile',{file_id:file!.id,priority:16,offset:0,limit:0,synchronous:false});setFiles(old=>({...old,[file!.id]:file!}));if(file!.local?.is_downloading_completed&&file!.local.path)await Sharing.shareAsync('file://'+file!.local.path);else setStatus('Downloading file. Tap again when the download finishes.');}catch(e){error(e)}
@@ -203,13 +215,14 @@ function Main() {
         {button('‹ All bots',()=>{void request('closeChat',{chat_id:selected.id}).catch(error);current.current=undefined;setSelected(undefined);commandGeneration.current++;})}
         <Text style={{fontSize:23,fontWeight:'700',color:colors.ink}}>{selected.title}</Text>
         <View style={{flexDirection:'row',gap:8,flexWrap:'wrap'}}>{button(pref.category==='chat'?'Interactive':'Alerts only',()=>{void preference({category:pref.category==='chat'?'alerts':'chat'})})}{button('Notifications: '+pref.noise,()=>{void preference({noise:pref.noise==='quiet'?'loud':pref.noise==='loud'?'off':'quiet'})})}</View>
+        {passwordAction&&<View style={{padding:12,backgroundColor:'white',borderRadius:12}}><Text>Confirm this bot action with your Telegram two-step verification password.</Text>{input(actionPassword,setActionPassword,'Telegram two-step password',true)}{button('Confirm action',()=>{void confirmPasswordAction()},busy||!actionPassword)}{button('Cancel action',()=>{setPasswordAction(undefined);setActionPassword('')})}</View>}
         {button('Load older messages',()=>{void history(selected,true).catch(error)})}
         <ScrollView ref={scroller} style={{height:360}} maintainVisibleContentPosition={{minIndexForVisible:0}} scrollEventThrottle={100} onScroll={event=>{const v=event.nativeEvent;autoScroll.current=v.contentSize.height-v.layoutMeasurement.height-v.contentOffset.y<60;}} onContentSizeChange={()=>{if(autoScroll.current)scroller.current?.scrollToEnd({animated:true});}}>
           {messages.map(message=>{const file=mediaFile(message),local=file&&(files[file.id]||file);return <View key={message.id} style={{backgroundColor:message.is_outgoing?'#DBF2F0':'white',padding:14,marginVertical:4,borderRadius:12}}>
             <Text selectable style={{color:colors.ink}}>{messageText(message)}</Text>
             {message.sending_state?.['@type']==='messageSendingStateFailed'&&<Text style={{color:'#B53432'}}>Failed: {message.sending_state.error?.message}</Text>}
             {file&&<>{message.content?.['@type']==='messagePhoto'&&local?.local?.is_downloading_completed&&<Image source={{uri:'file://'+local.local.path}} style={{height:180,width:'100%'}} resizeMode="contain"/>}{button(local?.local?.is_downloading_completed?'Open / share file':'Download file',()=>{void openMedia(message)})}</>}
-            {message.reply_markup?.['@type']==='replyMarkupInlineKeyboard'&&message.reply_markup.rows.map((row:Td[],i:number)=><View key={i} style={{flexDirection:'row',gap:6,flexWrap:'wrap'}}>{row.map((b,j)=><View key={j}>{button(b.text,()=>{void inline(message,b)})}</View>)}</View>)}
+            {message.reply_markup?.['@type']==='replyMarkupInlineKeyboard'&&message.reply_markup.rows.map((row:Td[],i:number)=><View key={i} style={{flexDirection:'row',gap:6,flexWrap:'wrap'}}>{row.map((b,j)=><View key={j}>{button(b.text,()=>{void inline(message,b)},b.type['@type']==='inlineKeyboardButtonTypeDisabled')}</View>)}</View>)}
             {message.reply_markup?.['@type']==='replyMarkupShowKeyboard'&&pref.category==='chat'&&message.reply_markup.rows.map((row:Td[],i:number)=><View key={i}>{row.map((b,j)=>b.type['@type']==='keyboardButtonTypeText'?<View key={j}>{button(b.text,()=>{void send(b.text)},busy)}</View>:<Text key={j}>{b.text}: permission action is not supported yet</Text>)}</View>)}
           </View>})}
         </ScrollView>

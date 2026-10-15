@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import Foundation
+import UIKit
 
 @_silgen_name("td_create_client_id") private func tdCreate() -> Int32
 @_silgen_name("td_send") private func tdSend(_ id: Int32, _ request: UnsafePointer<CChar>)
@@ -56,6 +57,10 @@ public class BotHubTdlibModule: Module {
       try database.setResourceValues(flags)
       self.client = TdPump.create { [weak self] json in self?.sendEvent("onUpdate", ["json": json]) }
       return ["database": database.path, "files": files.path]
+    }
+    Function("copyText") { (text: String) in
+      if Thread.isMainThread { UIPasteboard.general.string = text }
+      else { DispatchQueue.main.sync { UIPasteboard.general.string = text } }
     }
     Function("send") { (request: String) throws in
       guard let id = self.client else { throw NSError(domain: "BotHub", code: 2, userInfo: [NSLocalizedDescriptionKey: "TDLib is not started"]) }

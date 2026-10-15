@@ -116,6 +116,7 @@ jobs:
           codesign --force --sign - dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
           codesign --force --sign - dist/BotHub.app
           codesign --verify --deep --strict dist/BotHub.app
+          dist/BotHub.app/Contents/MacOS/BotHub --tdlib-smoke
           mkdir -p .build/dmg
           cp -R dist/BotHub.app .build/dmg/
           ln -s /Applications .build/dmg/Applications
