@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "BotHub",
+    "slug": "bothub",
+    "scheme": "bothub",
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "android": {
+      "package": "com.botify.bothub"
+    },
+    "ios": {
+      "bundleIdentifier": "com.botify.bothub",
+      "supportsTablet": true
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}
