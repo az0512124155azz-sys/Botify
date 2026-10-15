@@ -1,17 +1,13 @@
-# Telegram user-client implementation plan
+# Telegram transport and release architecture
 
-## Correct transport
-The Telegram Bot API cannot sign in a normal Telegram user or list bots that user has chatted with. The intended BotHub product needs native Telegram **TDLib** (or a protocol-compliant MTProto client), with user authorization. Do not ask the user for BotFather tokens to see third-party bot chats.
+The main app is a **Telegram user client**, not a Bot API owner dashboard. It signs in via TDLib and filters private-chat peers whose TDLib user type is `userTypeBot`. Group/channel/regular-user conversations are excluded.
 
-## Native Android / iOS
-1. Obtain a developer API ID and API hash for the application from Telegram; never push the API hash to a public repository. Review Telegram's API terms and required attribution.
-2. Bundle TDLib built for Android arm64 and the targeted iOS architectures using native integration; **Expo Go cannot load it**.
-3. Implement `setTdlibParameters`, `setAuthenticationPhoneNumber`, `checkAuthenticationCode`, `checkAuthenticationPassword`, `checkAuthenticationEmailCode` (if challenged) and logout.
-4. On authorization, call `getChats` and `getUser` / `getChat`; filter private chats whose peer users have `type.is_bot`.
-5. Subscribe to `updateNewMessage`, `updateChatLastMessage`, `updateChatPosition` and `updateMessageContent`; render bot-only chat threads.
-6. Implement `sendMessage` as the authorized user, `getMessage`, `downloadFile`, `openChat`; execute inline actions via TDLib's `getCallbackQueryAnswer` (not Bot API `answerCallbackQuery`).
-7. Store the TDLib database key in hardware-backed keystore/keychain and TDLib's encrypted state in an app-private directory.
-8. Respect OS background execution rules and Telegram's notification limits. An always-on foreground alarm guarantee is not possible on every mobile platform.
+Transport responsibilities are separate from the UI: request IDs/timeouts, JSON events, close lifecycle and native binary loading. Mobile cache tests cover either user/chat update order and history racing with edits/deletions. The native library is built from an explicit upstream commit rather than fetched as an unversioned executable.
 
-## Release blockers
-Telegram developer app credentials, official native TDLib binary integration, device tests and Apple signing have not been provided or validated. Hence the existing Expo client stays accurately labeled as an owned-bot dashboard.
+Telegram authorization requires an application API ID/hash and a real user's phone/code/password as challenged. The database encryption key is independently generated per device and stored using the OS secure store. A lost key must not silently overwrite an existing encrypted database.
+
+BotHub supports standard inline callbacks via `getCallbackQueryAnswer` as the user. It must not use Bot API `answerCallbackQuery` to simulate user interaction. Advanced inline/auth/payment actions need their own authorization and UI and remain explicit release gates.
+
+There is no paid external message relay. Foreground notifications currently originate from live TDLib messages. Reliable suspended/terminated-app delivery requires configuring native APNs/FCM device registration and push processing against Telegram and validating OS behavior. Notification preferences alone do not provide that capability.
+
+The platform build workflow distinguishes compilation, native-library smoke, emulator startup and account E2E testing. An unsigned iOS archive is not an installable IPA. An EXE/DMG that compiles but has not passed Telegram/device checks is not a verified release.

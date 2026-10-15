@@ -1,22 +1,28 @@
 {
   "name": "bothub",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.cjs && python3 -m unittest discover -s tests -p \"test_*.py\"",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "expo": "~54.0.0",
+    "expo-crypto": "~15.0.8",
+    "expo-document-picker": "~14.0.8",
+    "expo-notifications": "~0.32.12",
     "expo-secure-store": "~15.0.8",
+    "expo-sharing": "~14.0.8",
     "react": "19.1.0",
-    "react-native": "0.81.4",
-    "react-native-safe-area-context": "~5.6.0",
-    "expo-notifications": "~0.32.12"
+    "react-native": "^0.81.5",
+    "react-native-safe-area-context": "~5.6.0"
   },
   "devDependencies": {
-    "typescript": "~5.9.2",
-    "@types/react": "~19.1.0"
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
   }
 }

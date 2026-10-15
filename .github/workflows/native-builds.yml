@@ -1,0 +1,236 @@
+name: TDLib platform builds
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options: [all, android, ios, windows, macos, desktop]
+        default: all
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+  push:
+    branches: [work/bothub-tdlib]
+permissions:
+  contents: read
+concurrency:
+  group: bothub-native-${{ github.ref }}-${{ inputs.platform || 'all' }}
+  cancel-in-progress: true
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - run: npm run check && npm test
+  windows:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == 'desktop'
+    needs: protocol
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Compile Windows UI before the native dependency
+        run: dotnet build native/windows/BotHub.csproj -c Release
+      - name: Cache native TDLib
+        uses: actions/cache/restore@v4
+        id: td-cache
+        with:
+          path: .build/windows-runtime
+          key: windows-x64-tdlib-v2-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - name: Compile pinned TDLib with static OpenSSL
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $revision=(Get-Content scripts/tdlib-revision.txt).Trim()
+          git clone https://github.com/tdlib/td.git .build/td
+          git -C .build/td checkout --detach $revision
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows-static zlib:x64-windows-static gperf:x64-windows
+          $gperf=Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT/installed" -Recurse -Filter gperf.exe | Select-Object -First 1 -ExpandProperty FullName
+          if (!$gperf) { throw "gperf is missing" }
+          cmake -S .build/td -B .build/td-win -A x64 "-DGPERF_EXECUTABLE=$gperf" "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build .build/td-win --config Release --target tdjson --parallel 3
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force .build/windows-runtime
+          Get-ChildItem .build/td-win -Recurse -Filter tdjson.dll | Copy-Item -Destination .build/windows-runtime
+          if (!(Test-Path .build/windows-runtime/tdjson.dll)) { throw 'TDLib DLL missing' }
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: .build/windows-runtime
+          key: windows-x64-tdlib-v2-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - name: Publish self-contained EXE with TDLib
+        shell: pwsh
+        run: |
+          dotnet publish native/windows/BotHub.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/windows
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item .build/windows-runtime/* dist/windows/
+          Copy-Item native/TDLib-LICENSE.txt dist/windows/
+          dotnet build tests/windows/Smoke.csproj -c Release -o .build/smoke
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item .build/windows-runtime/* .build/smoke/
+          dotnet .build/smoke/Smoke.dll
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Capture actual WPF login and conversation layouts
+        shell: pwsh
+        run: |
+          $app=Start-Process -FilePath dist/windows/BotHub.exe -ArgumentList '--ui-smoke','.build/windows-ui' -PassThru
+          if (!$app.WaitForExit(60000)) { $app.Kill(); throw 'WPF visual smoke timed out' }
+          if ($app.ExitCode -ne 0) { Get-Content .build/windows-ui/failure.txt; throw 'WPF visual smoke failed' }
+          if (!(Test-Path .build/windows-ui/login.png) -or !(Test-Path .build/windows-ui/conversation.png)) { throw 'WPF screenshots missing' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: BotHub-Windows-visual-check, path: .build/windows-ui/, if-no-files-found: ignore}
+      - uses: actions/upload-artifact@v4
+        with: {name: BotHub-Windows-x64-native-smoke, path: dist/windows/, if-no-files-found: error}
+  macos:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'macos' || inputs.platform == 'desktop'
+    needs: protocol
+    runs-on: macos-14
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile SwiftUI screens
+        run: |
+          mkdir -p dist/BotHub.app/Contents/MacOS dist/BotHub.app/Contents/Resources
+          swiftc -parse-as-library native/macos/*.swift -o dist/BotHub.app/Contents/MacOS/BotHub -framework SwiftUI -framework Security -framework UserNotifications
+          cp scripts/macos-Info.plist dist/BotHub.app/Contents/Info.plist
+          bash scripts/macos-icon.sh
+          plutil -lint dist/BotHub.app/Contents/Info.plist
+      - run: brew install gperf openssl@3 cmake
+      - uses: actions/cache/restore@v4
+        id: td-cache
+        with:
+          path: dist/BotHub.app/Contents/Frameworks
+          key: macos-arm64-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - if: steps.td-cache.outputs.cache-hit != 'true'
+        run: bash scripts/build-tdlib-macos.sh
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: dist/BotHub.app/Contents/Frameworks
+          key: macos-arm64-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - name: Native dependency test and package
+        run: |
+          python3 scripts/smoke-tdlib.py dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
+          otool -L dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
+          if otool -L dist/BotHub.app/Contents/Frameworks/libtdjson.dylib | grep -E "/opt/homebrew|/usr/local/opt|/Users/runner"; then exit 1; fi
+          cp native/TDLib-LICENSE.txt dist/BotHub.app/Contents/Resources/TDLib-LICENSE.txt
+          codesign --force --sign - dist/BotHub.app/Contents/Frameworks/libtdjson.dylib
+          codesign --force --sign - dist/BotHub.app
+          codesign --verify --deep --strict dist/BotHub.app
+          dist/BotHub.app/Contents/MacOS/BotHub --tdlib-smoke
+          mkdir -p .build/dmg
+          cp -R dist/BotHub.app .build/dmg/
+          ln -s /Applications .build/dmg/Applications
+          hdiutil create -volname BotHub -srcfolder .build/dmg -ov -format UDZO dist/BotHub-macOS-arm64.dmg
+      - uses: actions/upload-artifact@v4
+        with: {name: BotHub-macOS-arm64-native-smoke, path: dist/BotHub-macOS-arm64.dmg, if-no-files-found: error}
+  android:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'android'
+    needs: protocol
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sudo apt-get update && sudo apt-get install -y gperf php ninja-build
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        id: td-cache
+        with:
+          path: |
+            modules/bothub-tdlib/android/src/main/jniLibs
+            modules/bothub-tdlib/android/src/main/java/org
+          key: android-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - if: steps.td-cache.outputs.cache-hit != 'true'
+        run: bash scripts/build-tdlib-android.sh
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            modules/bothub-tdlib/android/src/main/jniLibs
+            modules/bothub-tdlib/android/src/main/java/org
+          key: android-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - run: npx expo prebuild --platform android
+      - name: Compile standalone APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace -PreactNativeArchitectures=arm64-v8a,x86_64
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Native module emulator smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-linux-hw-accel: false
+          script: bash scripts/android-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: BotHub-Android-diagnostics, path: '.build/android-smoke/', if-no-files-found: ignore}
+      - uses: actions/upload-artifact@v4
+        with: {name: BotHub-Android-APK-emulator-smoke, path: android/app/build/outputs/apk/release/*.apk, if-no-files-found: error}
+  ios:
+    if: inputs.platform == '' || inputs.platform == 'all' || inputs.platform == 'ios'
+    needs: protocol
+    runs-on: macos-14
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode required by React Native
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+      - name: Verify Apple toolchain before compiling TDLib
+        run: xcodebuild -version
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm}
+      - run: brew install gperf coreutils cmake
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        id: td-cache
+        with:
+          path: modules/bothub-tdlib/ios/libtdjson.xcframework
+          key: ios-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - if: steps.td-cache.outputs.cache-hit != 'true'
+        run: bash scripts/build-tdlib-ios.sh
+      - uses: actions/cache/save@v4
+        if: steps.td-cache.outputs.cache-hit != 'true'
+        with:
+          path: modules/bothub-tdlib/ios/libtdjson.xcframework
+          key: ios-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
+      - name: Generate iOS project and install Pods
+        run: |
+          python3 scripts/package-ios-framework.py
+          npx expo prebuild --platform ios --no-install
+          cd ios
+          pod install
+      - name: Compile device archive (unsigned)
+        run: xcodebuild -workspace ios/BotHub.xcworkspace -scheme BotHub -configuration Release -destination 'generic/platform=iOS' -archivePath .build/BotHub.xcarchive CODE_SIGNING_ALLOWED=NO archive
+      - name: Package unsigned IPA for inspection (not installable)
+        run: |
+          mkdir -p dist/Payload
+          cp -R .build/BotHub.xcarchive/Products/Applications/BotHub.app dist/Payload/
+          cd dist
+          zip -qry BotHub-iOS-unsigned-not-installable.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with: {name: BotHub-iOS-unsigned-NOT-installable, path: dist/*.ipa, if-no-files-found: error}

@@ -1,0 +1,1 @@
+{"platforms":["apple","android"],"apple":{"modules":["BotHubTdlibModule"]},"android":{"modules":["expo.modules.bothubtdlib.BotHubTdlibModule"]}}

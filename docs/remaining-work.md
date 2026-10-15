@@ -1,11 +1,31 @@
-# Remaining features / architectural blockers
+# BotHub release gates — 2026-10-15
 
-The Bot API is an owner management API, not a Telegram user client. User conversations with arbitrary bots require TDLib with a Telegram API ID/hash and authorization flow (phone number, login code, optional password). This is not implemented. API credentials must not be checked into public GitHub repositories.
+This is an implementation in progress, not a verified release.
 
-Android/iOS reliable background alarm delivery requires FCM/APNs delivery or a backend relay that can run independently of the phone. The current in-app notifications only cover foreground updates, and user-selected loud/quiet/off levels aren't a production incident paging service.
+## Implemented in source
 
-Inline keyboard responses belong to the Telegram user, not the owner of a bot token. This app displays inline buttons for inspection but does not impersonate a user. Open the bot in Telegram to interact as the user.
+- Android/iOS: local Expo native module wrapping the pinned official TDLib JSON interface; one process-wide receiver, routing by client ID, explicit close.
+- Mobile protocol: correlated requests, timeout/error propagation, bot-only private chat cache, history/live merge, edits/deletions/send acknowledgments.
+- User authentication: phone, code, password, email, email code, resend. Unsupported registration/Premium/device confirmation states are shown explicitly.
+- Text send/receive, command completion, standard callback/URL inline buttons, text reply keyboard on mobile, bot username/start deep links, media download/open/share.
+- Local interactive/alert categories, local loud/quiet/off preferences, foreground notifications. Android/iOS database keys in SecureStore, Windows DPAPI, macOS Keychain.
+- Windows WPF and macOS SwiftUI clients, without Electron or an embedded browser. macOS library loading is restricted to the app bundle.
+- Platform build workflow that builds and packages TDLib instead of requiring the user to locate tdjson.dll manually.
 
-GitHub OAuth account linking requires explicit app registration and suitable security architecture. Opening or downloading this GitHub source repository is not OAuth synchronization. No OAuth client registration was provided, so this remains unimplemented.
+## Still required
 
-A debug APK workflow is included for manual dispatch. A debug artifact does not equal a signed release or a tested production app.
+1. Complete platform CI on the latest source. Run 38780173348 passed protocol checks, Windows native build/smoke tests and macOS native build, native library tests, codesign verification and DMG packaging. Android compiled and cached TDLib but failed Gradle configuration because the Expo module lacked defaultConfig.versionName; the module now declares its version. iOS compiled and cached TDLib but failed CocoaPods because the runner selected Xcode 15.4; the workflow now selects 16.2 and fails immediately on Pod installation errors. These fixes and the newer UI actions still require a fresh CI run.
+2. Test account sign-in on each platform with a real Telegram application API ID/hash and user-provided login steps. No Telegram credentials were invented or committed.
+3. Exercise third-party bot discovery, history, live edits/deletions, send, commands, callbacks, files, logout/restart and preference persistence on devices. Protocol tests are not substitutes for these checks.
+4. Implement and validate APNs/FCM registration and native background push processing. Current foreground notifications are not a closed-app alarm service. No paid relay was added.
+5. Validate the new password callback, copy-text, user-link, game callback and disabled-button handling on devices. Implement the remaining keyboard actions: login URL authorization, web apps, switch-inline queries, phone/location/poll requests, and payment flows.
+6. Verify the new file attachment composer on devices; complete inline photo/video composition/playback, rich text entities, reconnect UI, and desktop reply-keyboard parity.
+7. Provide Apple signing/provisioning for an installable IPA. The configured unsigned archive/IPA is an inspection artifact and cannot be presented as installable.
+8. Test EXE and DMG on Windows/macOS machines. macOS ad-hoc signing is not notarization; Windows output is a self-contained app directory with its native DLL.
+9. Review data migration from the previous owner-token dashboard. The main interface no longer polls bot-owner tokens, preventing conflicts with existing bot webhooks.
+
+Legacy platform build entry points now delegate to the TDLib packaging workflow. Public branch uploads and release publication once all gates are met are explicitly authorized.
+
+## Release publication
+
+The user explicitly requested uploading all installers to GitHub Releases once everything is ready. `release-readiness.json` remains false for every unverified release gate. The release workflow checks the exact successful native run and all platform jobs, rejects unsigned IPA and Windows packages missing TDLib, writes SHA256 checksums, and publishes only after uploading every asset to a draft. Do not flip gates merely because compilation passes.

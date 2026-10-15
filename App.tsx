@@ -1,58 +1,243 @@
-import React,{useEffect,useState,useRef} from 'react';
-import {View,Text,TextInput,Pressable,ScrollView,Alert,AppState,Linking} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {Alert, AppState, Image, Linking, Platform, Pressable, ScrollView, Text, TextInput, View} from 'react-native';
+import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
-import {normalizeChatId} from './src/telegram/botApi';
-import {SafeAreaProvider,SafeAreaView} from 'react-native-safe-area-context';
-type Bot={id:string;name:string;username:string;type:'chat'|'alerts';noise:'loud'|'quiet'|'off';token:string};
-type Msg={id:number;chat:number;text:string;who:string;callbackId?:string;buttons?:{text:string;callback_data?:string;url?:string}[][]};
-Notifications.setNotificationHandler({handleNotification:async()=>({shouldShowBanner:true,shouldShowList:true,shouldPlaySound:true,shouldSetBadge:false})});
-const API='https://api.telegram.org/bot';
-async function call<T>(token:string,method:string,body:object={}):Promise<T>{
- const r=await fetch(API+token+'/'+method,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
- const x=await r.json();if(!x.ok)throw Error(x.description||'Telegram API failed');return x.result as T;
+import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
+import {nativeTdlib, NativeTdlib} from './modules/bothub-tdlib';
+import {authRequest, BotStore, botLink, BotChat, mediaFile, messageText, Preference, Td, TdRequests, TelegramError, localFilePath, documentContent} from './src/telegram/tdlib';
+
+Notifications.setNotificationHandler({handleNotification: async notification => ({
+  shouldShowBanner: true, shouldShowList: true, shouldSetBadge: false,
+  shouldPlaySound: notification.request.content.data.noise === 'loud',
+})});
+const colors = {background:'#F5F8FA', ink:'#20343E', accent:'#087E89', muted:'#647B85'};
+const defaults: Preference = {category:'chat', noise:'quiet'};
+const labels: Record<string, string> = {
+  authorizationStateWaitPhoneNumber: 'Phone number with country code',
+  authorizationStateWaitCode: 'Code sent by Telegram',
+  authorizationStateWaitPassword: 'Two-step verification password',
+  authorizationStateWaitEmailAddress: 'Email address requested by Telegram',
+  authorizationStateWaitEmailCode: 'Email verification code',
+};
+function base64(bytes: Uint8Array) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let out='';
+  for(let i=0;i<bytes.length;i+=3) {const n=(bytes[i]<<16)|((bytes[i+1]||0)<<8)|(bytes[i+2]||0);out+=alphabet[n>>>18]+alphabet[(n>>>12)&63]+(i+1<bytes.length?alphabet[(n>>>6)&63]:'=')+(i+2<bytes.length?alphabet[n&63]:'=');} return out;
 }
-const bg='#F5F8FA',ink='#21333D',accent='#087E89';
-function Main(){
- const pollLock=useRef(false),offsetRef=useRef<Record<string,number>>({});const [webhookInfo,setWebhookInfo]=useState<Record<string,string>>({}),[mode,setMode]=useState<'all'|'chat'|'alerts'>('all'),[errors,setErrors]=useState<Record<string,string>>({}),[commands,setCommands]=useState<string[]>([]),[bots,setBots]=useState<Bot[]>([]),[ready,setReady]=useState(false),[token,setToken]=useState(''),[type,setType]=useState<'chat'|'alerts'>('chat'),[page,setPage]=useState<'home'|'add'|'detail'>('home'),[id,setId]=useState(''),[msgs,setMsgs]=useState<Record<string,Msg[]>>({}),[offset,setOffset]=useState<Record<string,number>>({}),[running,setRunning]=useState(false),[chat,setChat]=useState(''),[draft,setDraft]=useState(''),[active,setActive]=useState(true);
- const current=bots.find(b=>b.id===id);
- useEffect(()=>{void Notifications.requestPermissionsAsync();void Notifications.setNotificationChannelAsync('incidents',{name:'Incidents',importance:Notifications.AndroidImportance.MAX,sound:'default',vibrationPattern:[0,500,250,500]});void Notifications.setNotificationChannelAsync('quiet',{name:'Quiet bot updates',importance:Notifications.AndroidImportance.LOW,sound:null});const s=AppState.addEventListener('change',v=>setActive(v==='active'));return()=>s.remove()},[]);
- useEffect(()=>{(async()=>{try{const a=JSON.parse(await SecureStore.getItemAsync('bothub-list')||'[]');setBots((await Promise.all(a.map(async(b:Omit<Bot,'token'>)=>({...b,token:await SecureStore.getItemAsync('bothub-'+b.id)||''})))).filter((b:Bot)=>b.token));const saved=await SecureStore.getItemAsync('bothub-offsets');if(saved)offsetRef.current=JSON.parse(saved)}catch(e){Alert.alert('Storage error',String(e))}finally{setReady(true)}})()},[]);
- async function persist(next:Bot[]){for(const b of next)await SecureStore.setItemAsync('bothub-'+b.id,b.token);await SecureStore.setItemAsync('bothub-list',JSON.stringify(next.map(({token,...rest})=>rest)));setBots(next)}
- async function add(){try{if(!token.trim())return;const me=await call<{id:number;first_name:string;username?:string}>(token.trim(),'getMe');if(bots.some(b=>b.id===String(me.id)))return Alert.alert('Already added');await persist([...bots,{id:String(me.id),name:me.first_name,username:me.username||'',token:token.trim(),type,noise:'quiet'}]);setToken('');setPage('home')}catch(e){Alert.alert('Connection error',String(e))}}
- async function poll(){if(!active||pollLock.current)return;pollLock.current=true;setRunning(true);try{for(const b of bots){try{const u=await call<any[]>(b.token,'getUpdates',{offset:offsetRef.current[b.id],timeout:0,limit:50,allowed_updates:['message','callback_query','channel_post']});if(!u.length)continue;const nextOffset=Math.max(...u.map(x=>x.update_id))+1;offsetRef.current[b.id]=nextOffset;void SecureStore.setItemAsync('bothub-offsets',JSON.stringify(offsetRef.current));setOffset(o=>({...o,[b.id]:nextOffset}));setErrors(old=>({...old,[b.id]:''}));if(b.noise!=='off')await Notifications.scheduleNotificationAsync({content:{title:b.name,body:u.length+' new updates',sound:b.noise==='loud'?'default':undefined},trigger:null});setMsgs(old=>{const known=new Set((old[b.id]||[]).map(m=>m.id));const incoming:Msg[]=u.filter(x=>!known.has(x.update_id)).map(x=>{const m=x.message||x.channel_post||x.callback_query?.message;return{id:x.update_id,chat:m?.chat?.id||0,text:x.callback_query?.data||m?.text||m?.caption||'[Media]',who:x.callback_query?.from?.first_name||m?.from?.first_name||'Telegram',callbackId:x.callback_query?.id,buttons:m?.reply_markup?.inline_keyboard}});return{...old,[b.id]:[...(old[b.id]||[]),...incoming].slice(-100)}})}catch(e){setErrors(old=>({...old,[b.id]:String(e)}))}}}finally{pollLock.current=false;setRunning(false)}}
- useEffect(()=>{if(!ready||!active||!bots.length)return;const timer=setInterval(()=>{void poll()},8000);void poll();return()=>clearInterval(timer)},[ready,active,bots]);
- async function send(){if(!current||!draft.trim())return;try{const target=normalizeChatId(chat);await call(current.token,'sendMessage',{chat_id:target,text:draft});setDraft('');Alert.alert('Sent')}catch(e){Alert.alert('Send failed',String(e))}}
- async function inspectWebhook(){if(!current)return;try{const info=await call<{url:string;pending_update_count:number}>(current.token,'getWebhookInfo');setWebhookInfo(old=>({...old,[current.id]:info.url?'Active webhook: '+info.url:'No webhook. Pending updates: '+info.pending_update_count}))}catch(e){Alert.alert('Webhook check failed',String(e))}}
- async function loadCommands(){if(!current)return;try{const list=await call<{command:string;description:string}[]>(current.token,'getMyCommands');setCommands(list.map(x=>'/'+x.command))}catch(e){Alert.alert('Commands',String(e))}}
- async function remove(){if(!current)return;const newOffsets={...offsetRef.current};delete newOffsets[current.id];offsetRef.current=newOffsets;await SecureStore.setItemAsync('bothub-offsets',JSON.stringify(newOffsets));const next=bots.filter(b=>b.id!==current.id);await persist(next);await SecureStore.deleteItemAsync('bothub-'+current.id);setPage('home')}
- const button=(title:string,action:()=>void)=> <Pressable onPress={action} style={{padding:13,backgroundColor:accent,borderRadius:13,marginVertical:6}}><Text style={{color:'white',fontWeight:'700',textAlign:'center'}}>{title}</Text></Pressable>;
- const input=(value:string,change:(v:string)=>void,placeholder:string,secret=false)=><TextInput value={value} onChangeText={change} placeholder={placeholder} secureTextEntry={secret} autoCapitalize="none" style={{backgroundColor:'white',padding:14,borderRadius:12,marginVertical:8,color:ink}}/>;
- return <SafeAreaView style={{flex:1,backgroundColor:bg}}><ScrollView contentContainerStyle={{padding:22,paddingBottom:60}}>
- <Text style={{fontSize:28,fontWeight:'900',color:ink,marginBottom:12}} onPress={()=>setPage('home')}>‹ BotHub</Text>
- {!ready?<Text>Loading secure storage...</Text>:page==='home'?<>
- <Text style={{color:ink,marginBottom:16}}>Only bots. No groups, no noise.</Text>
- {button('Show: '+mode,()=>setMode(mode==='all'?'chat':mode==='chat'?'alerts':'all'))}
- {bots.filter(b=>mode==='all'||b.type===mode).map(b=><Pressable key={b.id} onPress={()=>{setId(b.id);setChat('');setPage('detail')}} style={{padding:18,backgroundColor:'white',borderRadius:15,marginVertical:6}}><Text style={{fontSize:18,fontWeight:'800',color:ink}}>{b.name}</Text><Text style={{color:'#667'}}>@{b.username} · {b.type} · {b.noise}</Text></Pressable>)}
- {button('+ Add bot',()=>setPage('add'))}</>:page==='add'?<>
- <Text style={{fontSize:21,fontWeight:'700'}}>Connect an owned bot</Text>
- {input(token,setToken,'BotFather token',true)}
- {button('Interactive bot',()=>setType('chat'))}{button('Alert-only bot',()=>setType('alerts'))}
- <Text>Selected: {type}. Tokens are stored in device secure storage.</Text>
- {button('Verify with Telegram and add',()=>{void add()})}</>:current?<>
- <Text style={{fontSize:23,fontWeight:'800'}}>{current.name}</Text><Text>@{current.username} · {current.type}</Text>
- {button('Refresh inbox',()=>{void poll()})}
- {button('Inspect webhook status',()=>{void inspectWebhook()})}
- {!!webhookInfo[id]&&<Text selectable style={{color:'#49636B',padding:6}}>{webhookInfo[id]}</Text>}
- {button('Open bot in Telegram',()=>{if(current.username)void Linking.openURL('https://t.me/'+encodeURIComponent(current.username))})}
- {button('Load slash commands',()=>{void loadCommands()})}
- {commands.map(cmd=><Pressable key={cmd} onPress={()=>setDraft(cmd+' ')} style={{padding:8}}><Text style={{color:accent}}>{cmd}</Text></Pressable>)}
- {!!errors[id]&&<Text style={{color:'#B53432'}}>Update error: {errors[id]}</Text>}
- {button('Notification preference: '+current.noise,()=>{const noise=current.noise==='loud'?'quiet':current.noise==='quiet'?'off':'loud';void persist(bots.map(b=>b.id===id?{...b,noise}:b))})}
- {(msgs[id]||[]).map(m=><Pressable key={m.id} onPress={()=>setChat(String(m.chat))} style={{backgroundColor:'white',padding:14,borderRadius:12,marginVertical:5}}><Text style={{fontWeight:'800'}}>{m.who} · chat {m.chat}</Text><Text>{m.text}</Text>{m.buttons?.map((row,index)=><View key={index} style={{flexDirection:'row',flexWrap:'wrap'}}>{row.map((b,j)=><Pressable key={j} style={{padding:9,backgroundColor:'#D5F3F1',borderRadius:9,margin:3}} onPress={()=>{if(b.url)void Linking.openURL(b.url);else Alert.alert('Inline button','Shown for inspection. To press as a Telegram user, open the bot in Telegram. Bot API does not let bot owners impersonate users.')}}><Text>{b.text}</Text></Pressable>)}</View>)}</Pressable>)}
- {current.type==='chat'?<>{input(chat,setChat,'Numeric chat ID')}{input(draft,setDraft,'Reply as bot')}{button('Send reply',()=>{void send()})}</>:<Text>Read-only alert feed</Text>}
- {button('Remove from device',()=>{Alert.alert('Remove bot?','The local token will be deleted',[{text:'Cancel'},{text:'Remove',onPress:()=>{void remove()}}])})}</>:null}
- <Text style={{color:'#76848B',fontSize:12,marginTop:24}}>Owner dashboard. A Telegram user-client requires TDLib login. Background push notifications are not supported in this build. Bot API polling conflicts with an existing webhook.</Text>
- </ScrollView></SafeAreaView>
+function Main() {
+  const [apiId,setApiId]=useState(''),[apiHash,setApiHash]=useState(''),[credential,setCredential]=useState('');
+  const [auth,setAuth]=useState(''),[status,setStatus]=useState('Sign in with your Telegram account'),[busy,setBusy]=useState(false),[started,setStarted]=useState(false);
+  const [bots,setBots]=useState<BotChat[]>([]),[selected,setSelected]=useState<BotChat>(),[messages,setMessages]=useState<Td[]>([]),[draft,setDraft]=useState(''),[link,setLink]=useState('');
+  const [filter,setFilter]=useState<'all'|'chat'|'alerts'>('all'),[preferences,setPreferences]=useState<Record<string,Preference>>({}),[commands,setCommands]=useState<Td[]>([]),[files,setFiles]=useState<Record<number,Td>>({});
+  const store=useRef(new BotStore()),requests=useRef<TdRequests|null>(null),native=useRef<NativeTdlib|null>(null),current=useRef<BotChat|undefined>(undefined),prefs=useRef(preferences),ready=useRef(false),mounted=useRef(true),notified=useRef(new Set<string>()),commandGeneration=useRef(0),moreBusy=useRef(false),scroller=useRef<ScrollView>(null);
+  const [passwordAction,setPasswordAction]=useState<{message:Td;data:string}>(),[actionPassword,setActionPassword]=useState('');
+  const autoScroll=useRef(true);
+  const notificationSub=useRef<{remove():void}|undefined>(undefined);
+  const error=(e: unknown)=>{ if(mounted.current) {setStatus(e instanceof Error?e.message:String(e)); Alert.alert('BotHub',e instanceof Error?e.message:String(e));} };
+  function refresh() {setBots(store.current.getBots());setMessages(current.current?store.current.getMessages(current.current.id):[]);}
+  const diagnosticBusy=useRef(false);
+  async function diagnostic() {
+    if(started||requests.current||diagnosticBusy.current)return;
+    diagnosticBusy.current=true;
+    let transport:TdRequests|undefined,module:NativeTdlib|undefined;
+    try {
+      module=nativeTdlib();
+      transport=new TdRequests({send:json=>module!.send(json),subscribe:listener=>{const sub=module!.addListener('onUpdate',event=>listener(event.json));return()=>sub.remove();}});
+      await module.start();
+      const auth=await transport.request('getAuthorizationState');
+      const version=await transport.request('getOption',{name:'version'});
+      if(auth['@type']!=='authorizationStateWaitTdlibParameters'||version['@type']!=='optionValueString')throw Error('Unexpected TDLib smoke response');
+      const closed=new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('TDLib close timed out')),10000);transport!.onUpdate(u=>{if(u.authorization_state?.['@type']==='authorizationStateClosed'){clearTimeout(timeout);resolve();}});});
+      await Promise.all([transport.request('close'),closed]);
+      setStatus('TDLib native smoke passed: '+version.value);
+    } catch(e){error(e)}finally{transport?.dispose();try{await module?.close()}catch(e){error(e)}diagnosticBusy.current=false;}
+  }
+  useEffect(()=>{
+    const listener=Linking.addEventListener('url',({url})=>{if(url==='bothub://diagnostics')void diagnostic();});
+    void Linking.getInitialURL().then(url=>{if(url==='bothub://diagnostics')void diagnostic();}).catch(error);
+    return()=>listener.remove();
+  },[]);
+  useEffect(()=>{
+    mounted.current=true;
+    notificationSub.current=Notifications.addNotificationResponseReceivedListener(response=>{const chatId=Number(response.notification.request.content.data.chatId);const chat=store.current.getBots().find(c=>c.id===chatId);if(chat)void select(chat);});
+    void (async()=>{try {const saved=await SecureStore.getItemAsync('bothub-telegram-app');if(saved){const value=JSON.parse(saved);setApiId(String(value.id));setApiHash(value.hash);}const p=JSON.parse(await SecureStore.getItemAsync('bothub-preferences')||'{}');prefs.current=p;setPreferences(p);}catch(e){error(e)}})();
+    return ()=>{mounted.current=false;requests.current?.dispose();void native.current?.close().catch(()=>{});notificationSub.current?.remove();};
+  },[]);
+  async function request(type: string,args:Record<string,unknown>={}) {if(!requests.current)throw Error('Connect Telegram first');return requests.current.request(type,args);}
+  async function configureNotifications() {
+    await Notifications.requestPermissionsAsync();
+    if(Platform.OS==='android') {
+      await Notifications.setNotificationChannelAsync('bothub-loud',{name:'Bot alarms',importance:Notifications.AndroidImportance.HIGH,sound:'default',vibrationPattern:[0,500,250,500]});
+      await Notifications.setNotificationChannelAsync('bothub-quiet',{name:'Silent bot updates',importance:Notifications.AndroidImportance.LOW,sound:null});
+    }
+  }
+  async function loadChats() {
+    for(const kind of ['chatListMain','chatListArchive']) {
+      while(ready.current) {
+        try {await request('loadChats',{chat_list:{'@type':kind},limit:100});}
+        catch(e) {if(e instanceof TelegramError&&e.code===404)break;throw e;}
+      }
+    }
+  }
+  async function connect() {
+    if(started||busy||diagnosticBusy.current)return;
+    const id=Number(apiId);if(!Number.isInteger(id)||id<=0||!/^[a-fA-F0-9]{32}$/.test(apiHash.trim()))return error(Error('Enter a valid Telegram API ID and 32-character API hash'));
+    setBusy(true);setStatus('Starting native TDLib…');
+    try {
+      const module=nativeTdlib();native.current=module;
+      const transport=new TdRequests({send:json=>module.send(json),subscribe:callback=>{const sub=module.addListener('onUpdate',event=>callback(event.json));return()=>sub.remove();}});
+      requests.current=transport;
+      let paths:{database:string;files:string}; let initialized=false;
+      let key=await SecureStore.getItemAsync('bothub-database-key');
+      if(!key){key=base64(await Crypto.getRandomBytesAsync(32));await SecureStore.setItemAsync('bothub-database-key',key,{keychainAccessible:SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY});}
+      const databaseKey=key;
+      async function authorization(state: Td) {
+        if(!mounted.current)return;
+        const kind=state['@type'];setAuth(kind);setStatus(labels[kind]||kind.replace('authorizationState',''));setCredential('');
+        if(kind==='authorizationStateWaitTdlibParameters'&&!initialized) {
+          initialized=true;
+          await transport.request('setTdlibParameters',{database_directory:paths.database,files_directory:paths.files,database_encryption_key:databaseKey,use_file_database:true,use_chat_info_database:true,use_message_database:true,use_secret_chats:false,api_id:id,api_hash:apiHash.trim(),system_language_code:'en',device_model:Platform.OS,system_version:String(Platform.Version),application_version:'0.4.0'});
+        } else if(kind==='authorizationStateReady'&&!ready.current) {
+          ready.current=true;setStatus('Connected to Telegram');
+          await SecureStore.setItemAsync('bothub-telegram-app',JSON.stringify({id,hash:apiHash.trim()}));
+          void configureNotifications().catch(error);void loadChats().catch(error);
+        } else if(kind==='authorizationStateWaitOtherDeviceConfirmation') {
+          setStatus('Confirm sign-in on your other Telegram device');
+          Alert.alert('Confirm Telegram sign-in',state.link,[{text:'Close'},{text:'Open link',onPress:()=>{void safeURL(state.link);}}]);
+        } else if(kind==='authorizationStateWaitRegistration')setStatus('This phone number needs a Telegram account. Create it in Telegram, then reconnect.');
+        else if(kind==='authorizationStateWaitPremiumPurchase')setStatus('Telegram requires a Premium purchase for this sign-in. Complete it in the official Telegram app.');
+        else if(kind==='authorizationStateClosed') {
+          ready.current=false;transport.dispose();await module.close();requests.current=null;setStarted(false);store.current.clear();refresh();current.current=undefined;setSelected(undefined);
+        }
+      }
+      transport.onUpdate(update=>{
+        if(!mounted.current)return;
+        if(update['@type']==='updateAuthorizationState') {void authorization(update.authorization_state).catch(error);return;}
+        store.current.ingest(update);
+        if(update['@type']==='updateNewChat') {
+          const chat=update.chat;if(chat.type['@type']==='chatTypePrivate'&&!store.current.getUser(chat.type.user_id)) void request('getUser',{user_id:chat.type.user_id}).then(user=>{store.current.ingest(user);refresh();}).catch(error);
+        }
+        if(update['@type']==='updateFile')setFiles(old=>({...old,[update.file.id]:update.file}));
+        if(update['@type']==='updateConnectionState')setStatus(update.state['@type']==='connectionStateReady'?'Connected to Telegram':'Telegram: '+update.state['@type'].replace('connectionState',''));
+        if(update['@type']==='updateNewMessage'&&ready.current) {
+          const message=update.message,chatId=message.chat_id,notificationId=`${chatId}:${message.id}`;
+          const pref=prefs.current[chatId]||defaults;
+          if(!message.is_outgoing&&store.current.isBot(chatId)&&pref.noise!=='off'&&!notified.current.has(notificationId)) {
+            notified.current.add(notificationId);if(notified.current.size>1000)notified.current.delete(notified.current.values().next().value!);
+            if(current.current?.id!==chatId||AppState.currentState!=='active')void Notifications.scheduleNotificationAsync({content:{title:store.current.getBots().find(c=>c.id===chatId)?.title||'BotHub',body:messageText(message),sound:pref.noise==='loud'?'default':undefined,data:{chatId,noise:pref.noise}},trigger:Platform.OS==='android'?{channelId:`bothub-${pref.noise}`} :null}).catch(error);
+          }
+          if(current.current?.id===chatId&&!message.is_outgoing) void request('viewMessages',{chat_id:chatId,message_ids:[message.id],force_read:true}).catch(error);
+        }
+        refresh();
+      });
+      paths=await module.start();setStarted(true);
+      const state=await transport.request('getAuthorizationState');await authorization(state);
+    } catch(e) {requests.current?.dispose();requests.current=null;try{await native.current?.close()}catch(closeError){error(closeError)}setStarted(false);error(e);} finally {setBusy(false);}
+  }
+  async function login() {setBusy(true);try {const [method,args]=authRequest(auth,credential);await request(method,args);setCredential('');}catch(e){error(e)}finally{setBusy(false)}}
+  async function select(chat:BotChat) {
+    const previous=current.current;if(previous&&previous.id!==chat.id)void request('closeChat',{chat_id:previous.id}).catch(error);
+    setPasswordAction(undefined);setActionPassword('');autoScroll.current=true;current.current=chat;setSelected(chat);setDraft('');setCommands([]);setMessages(store.current.getMessages(chat.id));
+    const generation=++commandGeneration.current;
+    try {await request('openChat',{chat_id:chat.id});await history(chat);const full=await request('getUserFullInfo',{user_id:chat.userId});if(commandGeneration.current===generation)setCommands(full.bot_info?.commands||[]);}catch(e){error(e)}
+  }
+  async function history(chat:BotChat,older=false) {
+    if(moreBusy.current)return;if(older)autoScroll.current=false;moreBusy.current=true;
+    try {const oldest=older?store.current.getMessages(chat.id)[0]?.id||0:0,revision=store.current.revision(chat.id);
+      const result=await request('getChatHistory',{chat_id:chat.id,from_message_id:oldest,offset:0,limit:50,only_local:false});
+      if(!store.current.mergeHistory(chat.id,result.messages,revision)) {setStatus('Conversation updated. Refresh to load history.');return;}
+      refresh();const ids=result.messages.filter(Boolean).map((m:Td)=>m.id);if(ids.length&&current.current?.id===chat.id)await request('viewMessages',{chat_id:chat.id,message_ids:ids,force_read:true});
+    }finally{moreBusy.current=false;}
+  }
+  async function send(text=draft) {
+    const chat=current.current;if(!chat||!text.trim()||(prefs.current[chat.id]||defaults).category==='alerts')return;
+    setBusy(true);try {const message=await request('sendMessage',{chat_id:chat.id,input_message_content:{'@type':'inputMessageText',text:{'@type':'formattedText',text}}});store.current.ingest(message);if(current.current?.id===chat.id)setDraft(value=>value===text?'':value);refresh();}catch(e){error(e)}finally{setBusy(false)}
+  }
+  async function attach() {
+    const chat=current.current;if(!chat||busy||(prefs.current[chat.id]||defaults).category==='alerts')return;
+    setBusy(true);
+    try {
+      const picked=await DocumentPicker.getDocumentAsync({copyToCacheDirectory:true,multiple:false});
+      if(picked.canceled||!picked.assets?.[0])return;
+      const caption=draft,path=localFilePath(picked.assets[0].uri);
+      const message=await request('sendMessage',{chat_id:chat.id,input_message_content:documentContent(path,caption)});
+      store.current.ingest(message);if(current.current?.id===chat.id)setDraft(value=>value===caption?'':value);refresh();
+    }catch(e){error(e)}finally{setBusy(false)}
+  }
+  async function safeURL(url:string) {try{const scheme=new URL(url).protocol;if(!['https:','http:','tg:'].includes(scheme))throw Error('Unsupported link');await Linking.openURL(url);}catch(e){error(e)}}
+  async function inline(message:Td,button:Td) {
+    try {const type=button.type;
+      if(type['@type']==='inlineKeyboardButtonTypeUrl')return void safeURL(type.url);
+      if(type['@type']==='inlineKeyboardButtonTypeCallback'||type['@type']==='inlineKeyboardButtonTypeCallbackWithPassword') {
+        if(type['@type'].endsWith('WithPassword')){setActionPassword('');setPasswordAction({message,data:type.data});return;}
+        const answer=await request('getCallbackQueryAnswer',{chat_id:message.chat_id,message_id:message.id,payload:{'@type':'callbackQueryPayloadData',data:type.data}});if(answer.text)Alert.alert('Bot',answer.text);if(answer.url)void safeURL(answer.url);
+      } else if(type['@type']==='inlineKeyboardButtonTypeCopyText') {native.current?.copyText(type.text);setStatus('Copied to clipboard');}
+      else if(type['@type']==='inlineKeyboardButtonTypeUser')void safeURL('tg://user?id='+type.user_id);
+      else if(type['@type']==='inlineKeyboardButtonTypeDisabled')return;
+      else if(type['@type']==='inlineKeyboardButtonTypeCallbackGame') {
+        const game=message.content?.game?.short_name;if(!game)throw Error('Game information is missing');
+        const answer=await request('getCallbackQueryAnswer',{chat_id:message.chat_id,message_id:message.id,payload:{'@type':'callbackQueryPayloadGame',game_short_name:game}});if(answer.url)void safeURL(answer.url);if(answer.text)Alert.alert('Bot',answer.text);
+      } else if(type['@type']==='inlineKeyboardButtonTypeSwitchInline')error(Error('Inline query mode is not supported yet'));
+      else error(Error('This button type is not supported yet: '+type['@type']));
+    }catch(e){error(e)}
+  }
+  async function confirmPasswordAction() {
+    const action=passwordAction;if(!action||!actionPassword)return;
+    setBusy(true);const password=actionPassword;setActionPassword('');
+    try {const answer=await request('getCallbackQueryAnswer',{chat_id:action.message.chat_id,message_id:action.message.id,payload:{'@type':'callbackQueryPayloadDataWithPassword',data:action.data,password}});setPasswordAction(undefined);if(answer.text)Alert.alert('Bot',answer.text);if(answer.url)void safeURL(answer.url);}catch(e){error(e)}finally{setBusy(false)}
+  }
+  async function openMedia(message:Td) {
+    try {let file=mediaFile(message);if(!file)return;file=files[file.id]||file;if(!file?.local?.is_downloading_completed)file=await request('downloadFile',{file_id:file!.id,priority:16,offset:0,limit:0,synchronous:false});setFiles(old=>({...old,[file!.id]:file!}));if(file!.local?.is_downloading_completed&&file!.local.path)await Sharing.shareAsync('file://'+file!.local.path);else setStatus('Downloading file. Tap again when the download finishes.');}catch(e){error(e)}
+  }
+  async function preference(change:Partial<Preference>) {
+    if(!selected)return;const next={...prefs.current,[selected.id]:{...(prefs.current[selected.id]||defaults),...change}};
+    try {await SecureStore.setItemAsync('bothub-preferences',JSON.stringify(next));prefs.current=next;setPreferences(next);}catch(e){error(e)}
+  }
+  async function addBot() {
+    try {const parsed=botLink(link),chat=await request('searchPublicChat',{username:parsed.username});if(chat.type['@type']!=='chatTypePrivate')throw Error('This link is not a bot');
+      const user=await request('getUser',{user_id:chat.type.user_id});if(user.type['@type']!=='userTypeBot')throw Error('This Telegram account is not a bot');store.current.ingest(user);store.current.ingest(chat);refresh();setLink('');await select(store.current.getBots().find(b=>b.id===chat.id)!);
+      if(parsed.parameter)await request('sendBotStartMessage',{bot_user_id:user.id,chat_id:chat.id,parameter:parsed.parameter});
+    }catch(e){error(e)}
+  }
+  const button=(title:string,action:()=>void,disabled=false)=><Pressable accessibilityRole="button" disabled={disabled} onPress={action} style={{backgroundColor:disabled?'#9DB1B7':colors.accent,padding:12,borderRadius:12,marginVertical:5}}><Text style={{color:'white',fontWeight:'700',textAlign:'center'}}>{title}</Text></Pressable>;
+  const input=(value:string,onChangeText:(v:string)=>void,placeholder:string,secure=false)=><TextInput accessibilityLabel={placeholder} value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={secure} autoCapitalize="none" autoCorrect={false} style={{backgroundColor:'white',padding:14,borderRadius:12,marginVertical:6,color:colors.ink}}/>;
+  const pref=selected?(preferences[selected.id]||defaults):defaults;
+  return <SafeAreaView style={{flex:1,backgroundColor:colors.background}}><ScrollView contentContainerStyle={{padding:22,paddingBottom:40}} keyboardShouldPersistTaps="handled">
+    <Text style={{fontSize:30,fontWeight:'800',color:colors.ink}}>BotHub</Text><Text style={{color:colors.muted,marginVertical:8}}>{status}</Text>
+    {!started?<>{input(apiId,setApiId,'Telegram API ID')}{input(apiHash,setApiHash,'Telegram API hash',true)}{button('Connect Telegram',()=>{void connect()},busy)}<Text style={{color:colors.muted}}>Use your application credentials from my.telegram.org. Your account connects directly to Telegram.</Text></>:auth!=='authorizationStateReady'?<>
+      {labels[auth]&&<>{input(credential,setCredential,labels[auth],auth==='authorizationStateWaitPassword')}{button('Continue',()=>{void login()},busy)}</>}
+      {['authorizationStateWaitCode','authorizationStateWaitEmailCode'].includes(auth)&&button('Resend code',()=>{void request('resendAuthenticationCode').catch(error)},busy)}
+      {button('Close connection',()=>{void request('close').catch(error)},busy)}
+    </>:<>
+      {selected?<>
+        {button('‹ All bots',()=>{void request('closeChat',{chat_id:selected.id}).catch(error);current.current=undefined;setSelected(undefined);commandGeneration.current++;})}
+        <Text style={{fontSize:23,fontWeight:'700',color:colors.ink}}>{selected.title}</Text>
+        <View style={{flexDirection:'row',gap:8,flexWrap:'wrap'}}>{button(pref.category==='chat'?'Interactive':'Alerts only',()=>{void preference({category:pref.category==='chat'?'alerts':'chat'})})}{button('Notifications: '+pref.noise,()=>{void preference({noise:pref.noise==='quiet'?'loud':pref.noise==='loud'?'off':'quiet'})})}</View>
+        {passwordAction&&<View style={{padding:12,backgroundColor:'white',borderRadius:12}}><Text>Confirm this bot action with your Telegram two-step verification password.</Text>{input(actionPassword,setActionPassword,'Telegram two-step password',true)}{button('Confirm action',()=>{void confirmPasswordAction()},busy||!actionPassword)}{button('Cancel action',()=>{setPasswordAction(undefined);setActionPassword('')})}</View>}
+        {button('Load older messages',()=>{void history(selected,true).catch(error)})}
+        <ScrollView ref={scroller} style={{height:360}} maintainVisibleContentPosition={{minIndexForVisible:0}} scrollEventThrottle={100} onScroll={event=>{const v=event.nativeEvent;autoScroll.current=v.contentSize.height-v.layoutMeasurement.height-v.contentOffset.y<60;}} onContentSizeChange={()=>{if(autoScroll.current)scroller.current?.scrollToEnd({animated:true});}}>
+          {messages.map(message=>{const file=mediaFile(message),local=file&&(files[file.id]||file);return <View key={message.id} style={{backgroundColor:message.is_outgoing?'#DBF2F0':'white',padding:14,marginVertical:4,borderRadius:12}}>
+            <Text selectable style={{color:colors.ink}}>{messageText(message)}</Text>
+            {message.sending_state?.['@type']==='messageSendingStateFailed'&&<Text style={{color:'#B53432'}}>Failed: {message.sending_state.error?.message}</Text>}
+            {file&&<>{message.content?.['@type']==='messagePhoto'&&local?.local?.is_downloading_completed&&<Image source={{uri:'file://'+local.local.path}} style={{height:180,width:'100%'}} resizeMode="contain"/>}{button(local?.local?.is_downloading_completed?'Open / share file':'Download file',()=>{void openMedia(message)})}</>}
+            {message.reply_markup?.['@type']==='replyMarkupInlineKeyboard'&&message.reply_markup.rows.map((row:Td[],i:number)=><View key={i} style={{flexDirection:'row',gap:6,flexWrap:'wrap'}}>{row.map((b,j)=><View key={j}>{button(b.text,()=>{void inline(message,b)},b.type['@type']==='inlineKeyboardButtonTypeDisabled')}</View>)}</View>)}
+            {message.reply_markup?.['@type']==='replyMarkupShowKeyboard'&&pref.category==='chat'&&message.reply_markup.rows.map((row:Td[],i:number)=><View key={i}>{row.map((b,j)=>b.type['@type']==='keyboardButtonTypeText'?<View key={j}>{button(b.text,()=>{void send(b.text)},busy)}</View>:<Text key={j}>{b.text}: permission action is not supported yet</Text>)}</View>)}
+          </View>})}
+        </ScrollView>
+        {pref.category==='chat'&&<>{input(draft,setDraft,'Message')}{draft.startsWith('/')&&commands.filter(c=>('/'+c.command).startsWith(draft.split(' ')[0])).map(c=><Pressable key={c.command} onPress={()=>setDraft('/'+c.command+' ')} style={{padding:8}}><Text style={{color:colors.accent}}>/{c.command} — {c.description}</Text></Pressable>)}{button('Send',()=>{void send()},busy||!draft.trim())}{button('Attach file',()=>{void attach()},busy)}{!messages.length&&button('Start bot',()=>{void send('/start')},busy)}</>}
+      </>:<>
+        <Text style={{fontSize:20,color:colors.ink,marginVertical:10}}>Only bots. No groups, no noise.</Text>
+        <View style={{flexDirection:'row',gap:8}}>{(['all','chat','alerts'] as const).map(value=><View key={value}>{button(value===filter?'✓ '+value:value,()=>setFilter(value))}</View>)}</View>
+        {bots.filter(b=>filter==='all'||(preferences[b.id]||defaults).category===filter).map(bot=><Pressable key={bot.id} onPress={()=>{void select(bot)}} style={{padding:18,borderRadius:14,backgroundColor:'white',marginVertical:5}}><Text style={{fontSize:18,fontWeight:'700',color:colors.ink}}>{bot.title}{bot.unread?' · '+bot.unread:''}</Text><Text style={{color:colors.muted}}>{(preferences[bot.id]||defaults).category} · {(preferences[bot.id]||defaults).noise}</Text></Pressable>)}
+        {!bots.length&&<Text style={{marginVertical:14,color:colors.muted}}>Your bot conversations will appear here after Telegram loads them.</Text>}
+        {input(link,setLink,'@bot_username or https://t.me/bot?start=…')}{button('Open bot',()=>{void addBot()},!link.trim())}
+        {button('Refresh bot list',()=>{void loadChats().catch(error)})}
+        {button('Log out of Telegram',()=>Alert.alert('Log out?','This closes your Telegram session on this device.',[{text:'Cancel',style:'cancel'},{text:'Log out',style:'destructive',onPress:()=>{void request('logOut').catch(error)}}]))}
+      </>}
+      <Text style={{fontSize:12,color:colors.muted,marginTop:16}}>Notifications work while the app can run. Closed-app push delivery has not been implemented.</Text>
+    </>}
+  </ScrollView></SafeAreaView>;
 }
 export default function App(){return <SafeAreaProvider><Main/></SafeAreaProvider>}

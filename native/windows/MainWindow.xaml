@@ -1,18 +1,77 @@
-<Window x:Class="BotHub.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="BotHub" Height="720" Width="950" MinWidth="620" Background="#F5F8FA">
-<Grid Margin="28"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-<TextBlock Text="BotHub" FontSize="32" FontWeight="Bold" Foreground="#20343E"/>
-<StackPanel Grid.Row="1" Margin="0,16,0,12">
-<TextBlock Name="Status" Text="Connect Telegram with your Telegram developer API ID and hash." TextWrapping="Wrap"/>
-<WrapPanel Margin="0,9,0,0">
-<TextBox Name="ApiId" Width="100" Margin="0,0,8,8" Padding="8" ToolTip="Telegram API ID"/>
-<TextBox Name="ApiHash" Width="290" Margin="0,0,8,8" Padding="8" ToolTip="Telegram API hash"/>
-<Button Name="Connect" Content="Connect TDLib" Click="ConnectClicked" Padding="13,8" Margin="0,0,8,8"/>
-</WrapPanel>
-<WrapPanel><TextBox Name="Credential" Width="320" Padding="8" ToolTip="Phone number, code or 2FA password"/><Button Content="Submit login step" Click="SubmitClicked" Padding="13,8" Margin="8,0"/></WrapPanel>
-</StackPanel>
-<Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-<ListBox Name="Chats" SelectionChanged="ChatSelected" DisplayMemberPath="Label"/>
-<StackPanel Grid.Column="1" Margin="15,0,0,0"><TextBlock Name="ChatTitle" Text="Bot chats" FontWeight="Bold" FontSize="20"/><ListBox Name="Messages" Height="360"/><DockPanel Margin="0,12,0,0"><TextBox Name="Composer" Width="340" Padding="9"/><Button Content="Send" Padding="12,8" Click="SendClicked"/></DockPanel></StackPanel>
+<Window x:Class="BotHub.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="BotHub" Height="800" Width="1180" MinWidth="880" MinHeight="600" Background="White" FontFamily="Segoe UI" FontSize="13" Foreground="#17212B" UseLayoutRounding="True">
+<Window.Resources>
+  <SolidColorBrush x:Key="Accent" Color="#419FD5"/>
+  <Style TargetType="Button"><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="#439CD2"/><Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="12,9"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.75"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+  <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="#419FD5"/><Setter Property="Foreground" Value="White"/><Setter Property="Padding" Value="14,13"/></Style>
+  <Style TargetType="TextBox"><Setter Property="Padding" Value="10,9"/><Setter Property="BorderBrush" Value="#DCE2E6"/><Setter Property="BorderThickness" Value="0,0,0,1"/><Setter Property="Background" Value="Transparent"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style TargetType="PasswordBox"><Setter Property="Padding" Value="10,9"/><Setter Property="BorderBrush" Value="#DCE2E6"/><Setter Property="BorderThickness" Value="0,0,0,1"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style x:Key="RailButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Foreground" Value="#8CA2B5"/><Setter Property="Padding" Value="3,14"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style>
+  <Style TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="BorderThickness" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border Name="Row" Background="Transparent"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#F3F5F6"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="#419FD5"/><Setter Property="Foreground" Value="White"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+  <DrawingBrush x:Key="Pattern" TileMode="Tile" Viewport="0,0,180,180" ViewportUnits="Absolute" Viewbox="0,0,180,180" ViewboxUnits="Absolute"><DrawingBrush.Drawing><DrawingGroup><GeometryDrawing Brush="Transparent" Geometry="M0,0 H180 V180 H0Z"/><GeometryDrawing><GeometryDrawing.Pen><Pen Brush="#224D7754" Thickness="1"/></GeometryDrawing.Pen><GeometryDrawing.Geometry><GeometryGroup><PathGeometry Figures="M12,32 L55,16 42,57 31,40 21,46 24,34 55,16 M24,34 L31,40 M101,16 C90,0 75,16 88,30 L105,45 123,26 C133,8 114,0 105,18 M18,105 L55,105 55,133 Q37,149 18,133Z M55,111 C76,107 74,130 55,128 M33,96 C22,87 43,87 33,77 M103,105 L112,88 121,105 139,108 126,122 129,140 112,131 96,140 99,122 86,108Z M35,165 C45,151 61,151 66,165 C55,179 44,179 35,165 M66,165 L76,158 76,172Z"/></GeometryGroup></GeometryDrawing.Geometry></GeometryDrawing></DrawingGroup></DrawingBrush.Drawing></DrawingBrush>
+</Window.Resources>
+<Grid>
+ <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="24"/></Grid.RowDefinitions>
+ <TextBlock Name="Status" Grid.Row="1" Text="Sign in with your Telegram account" FontSize="11" Foreground="#8A969F" Padding="12,3" TextTrimming="CharacterEllipsis" Background="#FAFBFC"/>
+ <Grid Name="LoginPanel">
+  <StackPanel Width="330" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,30">
+   <Border Width="80" Height="80" Background="#419FD5" CornerRadius="40" Margin="0,0,0,26"><TextBlock Text="↗" FontSize="48" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+   <TextBlock Text="Welcome to BotHub" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+   <TextBlock Text="Sign in with your Telegram account.&#10;Your bots and updates, in one place." TextAlignment="Center" Foreground="#959FA6" LineHeight="21" Margin="0,0,0,26"/>
+   <StackPanel Name="AppCredentials">
+    <TextBlock Text="Telegram API ID" Foreground="#85929D" FontSize="12" Margin="10,0,0,3"/><TextBox Name="ApiId" ToolTip="Telegram application API ID from my.telegram.org" Margin="0,0,0,17"/>
+    <TextBlock Text="Telegram API hash" Foreground="#85929D" FontSize="12" Margin="10,0,0,3"/><PasswordBox Name="ApiHash" ToolTip="Telegram application API hash from my.telegram.org" Margin="0,0,0,24"/>
+    <Button Name="Connect" Content="CONNECT TELEGRAM" Click="ConnectClicked" Style="{StaticResource Primary}"/>
+    <TextBlock Text="Use your application credentials from my.telegram.org" TextAlignment="Center" FontSize="10" Foreground="#A5AFB5" Margin="0,18,0,0"/>
+   </StackPanel>
+   <StackPanel Name="AuthPanel" Visibility="Collapsed">
+    <TextBlock Name="AuthPrompt" Foreground="#419FD5" Margin="10,0,0,7"/><PasswordBox Name="Credential" Margin="0,0,0,22"/>
+    <Button Content="CONTINUE" Click="SubmitClicked" Style="{StaticResource Primary}"/>
+    <Button Content="Resend code" Click="ResendClicked" Margin="0,7,0,0"/>
+   </StackPanel>
+  </StackPanel>
+ </Grid>
+ <Grid Name="ClientPanel" Visibility="Collapsed" IsEnabled="False">
+  <Grid.ColumnDefinitions><ColumnDefinition Width="66"/><ColumnDefinition Width="320" MinWidth="260" MaxWidth="520"/><ColumnDefinition Width="1"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+  <DockPanel Background="#2B3D4E">
+   <Button DockPanel.Dock="Bottom" Content="Log out" Click="LogoutClicked" Style="{StaticResource RailButton}" FontSize="10"/>
+   <StackPanel>
+    <Button Content="☰" Style="{StaticResource RailButton}" FontSize="23" Click="AddBotToggleClicked" ToolTip="Add bot"/>
+    <Button Tag="0" Click="RailFilterClicked" Style="{StaticResource RailButton}"><StackPanel><TextBlock Text="◉" FontSize="25" TextAlignment="Center"/><TextBlock Text="All chats" FontSize="10" Margin="0,5,0,0"/></StackPanel></Button>
+    <Button Tag="1" Click="RailFilterClicked" Style="{StaticResource RailButton}"><StackPanel><TextBlock Text="▱" FontSize="25" TextAlignment="Center"/><TextBlock Text="Chats" FontSize="10" TextAlignment="Center" Margin="0,5,0,0"/></StackPanel></Button>
+    <Button Tag="2" Click="RailFilterClicked" Style="{StaticResource RailButton}"><StackPanel><TextBlock Text="♧" FontSize="24" TextAlignment="Center"/><TextBlock Text="Updates" FontSize="10" TextAlignment="Center" Margin="0,5,0,0"/></StackPanel></Button>
+    <Button Content="↻" Click="RefreshClicked" Style="{StaticResource RailButton}" FontSize="24" ToolTip="Refresh bots"/>
+   </StackPanel>
+  </DockPanel>
+  <DockPanel Grid.Column="1" Background="White">
+   <StackPanel DockPanel.Dock="Top">
+    <Border Background="#F1F1F1" CornerRadius="20" Margin="12,10" Height="36"><TextBox Name="BotSearch" TextChanged="SearchChanged" BorderThickness="0" Padding="14,5" ToolTip="Search bots"/></Border>
+    <ComboBox Name="FeedFilter" SelectionChanged="FilterChanged" SelectedIndex="0" Visibility="Collapsed"><ComboBoxItem Content="All bots"/><ComboBoxItem Content="Interactive"/><ComboBoxItem Content="Alerts"/></ComboBox>
+    <StackPanel Name="AddBotPanel" Visibility="Collapsed" Margin="12,0,12,12"><TextBlock Text="Open a bot" Foreground="#85929D" FontSize="11"/><TextBox Name="BotLink" ToolTip="@username or https://t.me/bot?start=…"/><Button Content="Open bot" Click="OpenBotClicked" HorizontalAlignment="Right"/></StackPanel>
+   </StackPanel>
+   <ListBox Name="Chats" SelectionChanged="ChatSelected" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+    <ListBox.ItemTemplate><DataTemplate><Grid Height="69" Margin="10,0"><Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <Border Width="46" Height="46" CornerRadius="23" VerticalAlignment="Center"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#B097ED" Offset="0"/><GradientStop Color="#7C65D7" Offset="1"/></LinearGradientBrush></Border.Background><TextBlock Text="{Binding Initial}" Foreground="White" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+     <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Label}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Preview}" Margin="0,6,0,0" FontSize="12" Opacity="0.65" TextTrimming="CharacterEllipsis"/></StackPanel>
+    </Grid></DataTemplate></ListBox.ItemTemplate>
+   </ListBox>
+  </DockPanel>
+  <GridSplitter Grid.Column="2" Width="1" HorizontalAlignment="Stretch" Background="#E6E8EA"/>
+  <Grid Grid.Column="3">
+   <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#D7DF94" Offset="0"/><GradientStop Color="#A9CA94" Offset="0.35"/><GradientStop Color="#7EB29D" Offset="0.7"/><GradientStop Color="#D4DDA5" Offset="1"/></LinearGradientBrush></Grid.Background>
+   <Rectangle Fill="{StaticResource Pattern}" IsHitTestVisible="False"/>
+   <Grid><Grid.RowDefinitions><RowDefinition Height="56"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Border Background="White" BorderBrush="#E5E5E5" BorderThickness="0,0,0,1" Padding="18,8"><DockPanel><Button DockPanel.Dock="Right" Content="⋮" FontSize="22" Click="ChatInfoClicked" ToolTip="Bot information"/><StackPanel VerticalAlignment="Center"><TextBlock Name="ChatTitle" Text="BotHub" FontWeight="SemiBold" FontSize="14"/><TextBlock Text="bot" Foreground="#959FA5" FontSize="12" Margin="0,3,0,0"/></StackPanel></DockPanel></Border>
+    <WrapPanel Name="ChatTools" Grid.Row="1" Background="#F9FCF9" Visibility="Collapsed"><Button Name="Category" Content="Interactive" Click="CategoryClicked"/><Button Name="Noise" Content="Notifications: quiet" Click="NoiseClicked"/><Button Content="Older messages" Click="OlderClicked"/></WrapPanel>
+    <ScrollViewer Name="HistoryScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Name="Messages" Margin="24,16"/></ScrollViewer>
+    <StackPanel Name="ConversationEmpty" Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"><Border Background="#5575916E" CornerRadius="14" Padding="16,8"><TextBlock Text="Select a bot to start messaging" Foreground="White" FontSize="12"/></Border><Button Content="Open a bot" Click="AddBotToggleClicked" Foreground="White" Margin="0,10"/></StackPanel>
+    <ComboBox Grid.Row="3" Name="Commands" DisplayMemberPath="Label" SelectionChanged="CommandSelected" Visibility="Collapsed"/>
+    <DockPanel Grid.Row="4" Name="ComposePanel" Background="White" Visibility="Collapsed" MinHeight="50" LastChildFill="True">
+     <Button DockPanel.Dock="Left" Content="＋" Click="AttachClicked" FontSize="23" Foreground="#979FA5" ToolTip="Attach file" Padding="13,8"/>
+     <Button DockPanel.Dock="Right" Name="Send" Content="➤" Click="SendClicked" FontSize="20" ToolTip="Send" Padding="15,8"/>
+     <TextBox Name="Composer" TextChanged="DraftChanged" Padding="4,12" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120" ToolTip="Write a message…"/>
+    </DockPanel>
+   </Grid>
+  </Grid>
+ </Grid>
 </Grid>
-<TextBlock Grid.Row="3" Foreground="#687B84" TextWrapping="Wrap" Text="Native TDLib requires tdjson.dll. Login requires Telegram developer credentials. This version has not been certified or end-to-end tested."/>
-</Grid></Window>
+</Window>

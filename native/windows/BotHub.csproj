@@ -1,1 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>BotHub</AssemblyName></PropertyGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms><Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings><AssemblyName>BotHub</AssemblyName><ApplicationIcon>../../assets/bothub.ico</ApplicationIcon><EnableWindowsTargeting>true</EnableWindowsTargeting></PropertyGroup>
+  <ItemGroup><PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0"/></ItemGroup>
+</Project>
