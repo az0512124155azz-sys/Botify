@@ -1,4 +1,4 @@
-name: Android APK - build and smoke test
+name: Android release APK - build and smoke test
 on:
   workflow_dispatch:
 jobs:
@@ -21,11 +21,11 @@ jobs:
           npm run check
       - name: Generate Android native project
         run: npx expo prebuild --platform android --non-interactive
-      - name: Compile standalone debug APK
+      - name: Compile release APK bundled for standalone use
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
       - name: Boot smoke test in Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -34,7 +34,7 @@ jobs:
           target: google_apis
           profile: pixel_6
           script: |
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r android/app/build/outputs/apk/release/app-release.apk
             adb shell monkey -p com.botify.bothub -c android.intent.category.LAUNCHER 1
             sleep 20
             adb logcat -d -t 1500 > emulator-log.txt
@@ -51,6 +51,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: BotHub-debug-tested
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: BotHub-release-smoke-tested
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
