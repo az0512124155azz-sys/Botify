@@ -25,7 +25,7 @@ jobs:
           mkdir -p dist/BotHub.app/Contents/Resources
           swiftc native/macos/BotHub.swift -o dist/BotHub.app/Contents/MacOS/BotHub -framework SwiftUI
           printf 'APPL????' > dist/BotHub.app/Contents/PkgInfo
-          /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string BotHub' -c 'Add :CFBundleIdentifier string com.botify.bothub.macos' -c 'Add :CFBundlePackageType string APPL' dist/BotHub.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Clear dict' -c 'Add :CFBundleExecutable string BotHub' -c 'Add :CFBundleIdentifier string com.botify.bothub.macos' -c 'Add :CFBundlePackageType string APPL' dist/BotHub.app/Contents/Info.plist
       - name: Package unsigned DMG
         run: hdiutil create -volname BotHub -srcfolder dist/BotHub.app -ov -format UDZO dist/BotHub-unsigned.dmg
       - uses: actions/upload-artifact@v4
