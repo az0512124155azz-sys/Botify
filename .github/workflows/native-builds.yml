@@ -178,6 +178,12 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode required by React Native
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+      - name: Verify Apple toolchain before compiling TDLib
+        run: xcodebuild -version
       - uses: actions/setup-node@v4
         with: {node-version: '22', cache: npm}
       - run: brew install gperf coreutils cmake
@@ -194,7 +200,11 @@ jobs:
         with:
           path: modules/bothub-tdlib/ios/libtdjson.xcframework
           key: ios-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
-      - run: npx expo prebuild --platform ios
+      - name: Generate iOS project and install Pods
+        run: |
+          npx expo prebuild --platform ios --no-install
+          cd ios
+          pod install
       - name: Compile device archive (unsigned)
         run: xcodebuild -workspace ios/BotHub.xcworkspace -scheme BotHub -configuration Release -destination 'generic/platform=iOS' -archivePath .build/BotHub.xcarchive CODE_SIGNING_ALLOWED=NO archive
       - name: Package unsigned IPA for inspection (not installable)
