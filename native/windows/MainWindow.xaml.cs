@@ -25,7 +25,9 @@ public partial class MainWindow : Window
     private System.Windows.Forms.NotifyIcon? tray;
     private record AppCredentialsValue(int Id,string Hash);
     private record Preference(string Category="chat",string Noise="quiet");
-    private sealed record BotChat(long Id,long UserId,string Label);
+    private sealed record BotChat(long Id,long UserId,string Label,string Preview="bot") {
+        public string Initial => string.IsNullOrWhiteSpace(Label)?"B":Label.Trim()[..1].ToUpperInvariant();
+    }
     private sealed record Command(string Value,string Label);
     private static string Type(JsonElement x)=>x.TryGetProperty("@type",out var t)?t.GetString()??"":"";
     private static string Str(JsonElement x,string key)=>x.TryGetProperty(key,out var v)&&v.ValueKind==JsonValueKind.String?v.GetString()??"":"";
@@ -33,6 +35,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent(); Closing+=OnClosing;
+        var args=Environment.GetCommandLineArgs();
+        if(Array.IndexOf(args,"--ui-smoke") is var smokeIndex&&smokeIndex>=0){
+            var destination=smokeIndex+1<args.Length?args[smokeIndex+1]:".build/windows-ui";
+            Loaded+=async(_,_)=>await CaptureDesignSmoke(destination);
+            return;
+        }
         try {preferences=SessionStorage.Read<Dictionary<long,Preference>>("preferences.dpapi")??new();var saved=SessionStorage.Read<AppCredentialsValue>("application.dpapi");if(saved!=null){ApiId.Text=saved.Id.ToString();ApiHash.Password=saved.Hash;}}
         catch(Exception ex){Status.Text="Secure storage: "+ex.Message;}
     }
@@ -61,7 +69,7 @@ public partial class MainWindow : Window
         AuthPrompt.Text=state switch {"authorizationStateWaitPhoneNumber"=>"Phone (+country code)","authorizationStateWaitCode"=>"Telegram code","authorizationStateWaitPassword"=>"2FA password","authorizationStateWaitEmailAddress"=>"Email address","authorizationStateWaitEmailCode"=>"Email code",_=>""};
         Credential.Clear();
         if(state=="authorizationStateWaitTdlibParameters"&&!initialized){initialized=true;await Request("setTdlibParameters",new {database_directory=System.IO.Path.Combine(SessionStorage.Root,"database"),files_directory=System.IO.Path.Combine(SessionStorage.Root,"files"),database_encryption_key=key,use_file_database=true,use_chat_info_database=true,use_message_database=true,use_secret_chats=false,api_id=apiId,api_hash=hash,system_language_code="en",device_model="Windows",system_version=Environment.OSVersion.VersionString,application_version="0.4.0"});}
-        else if(state=="authorizationStateReady"&&!ready){ready=true;ClientPanel.IsEnabled=true;LoginPanel.Visibility=Visibility.Collapsed;Status.Text="Connected to Telegram";await LoadChats();}
+        else if(state=="authorizationStateReady"&&!ready){ready=true;ClientPanel.IsEnabled=true;ClientPanel.Visibility=Visibility.Visible;LoginPanel.Visibility=Visibility.Collapsed;Status.Text="Connected to Telegram";await LoadChats();}
         else if(state=="authorizationStateWaitOtherDeviceConfirmation") {Status.Text="Confirm on another Telegram device: "+Str(auth,"link");}
         else if(state=="authorizationStateWaitRegistration")Status.Text="Create your Telegram account in Telegram, then reconnect.";
         else if(state=="authorizationStateWaitPremiumPurchase")Status.Text="Telegram requires a Premium purchase for this sign-in. Complete it in the official Telegram app.";
@@ -99,7 +107,7 @@ public partial class MainWindow : Window
     }
     private bool IsBot(long id)=>chats.TryGetValue(id,out var c)&&c.TryGetProperty("type",out var t)&&Type(t)=="chatTypePrivate"&&users.TryGetValue(t.GetProperty("user_id").GetInt64(),out var u)&&Type(u.GetProperty("type"))=="userTypeBot";
     private bool refreshing;
-    private void RefreshBots(){if(Chats==null||refreshing)return;refreshing=true;try{var keep=selected;Chats.Items.Clear();foreach(var pair in chats.Where(c=>IsBot(c.Key)).OrderBy(c=>Str(c.Value,"title"))){var p=Pref(pair.Key);if(FeedFilter.SelectedIndex==1&&p.Category!="chat"||FeedFilter.SelectedIndex==2&&p.Category!="alerts")continue;var b=new BotChat(pair.Key,pair.Value.GetProperty("type").GetProperty("user_id").GetInt64(),Str(pair.Value,"title"));Chats.Items.Add(b);if(b.Id==keep)Chats.SelectedItem=b;}}finally{refreshing=false;}}
+    private void RefreshBots(){if(Chats==null||refreshing)return;refreshing=true;try{var keep=selected;Chats.Items.Clear();foreach(var pair in chats.Where(c=>IsBot(c.Key)).OrderBy(c=>Str(c.Value,"title"))){var p=Pref(pair.Key);if(FeedFilter.SelectedIndex==1&&p.Category!="chat"||FeedFilter.SelectedIndex==2&&p.Category!="alerts")continue;if(!Str(pair.Value,"title").Contains(BotSearch?.Text??"",StringComparison.OrdinalIgnoreCase))continue;var b=new BotChat(pair.Key,pair.Value.GetProperty("type").GetProperty("user_id").GetInt64(),Str(pair.Value,"title"),pair.Value.TryGetProperty("last_message",out var last)&&last.ValueKind==JsonValueKind.Object?Text(last):"bot");Chats.Items.Add(b);if(b.Id==keep)Chats.SelectedItem=b;}}finally{refreshing=false;}}
     private async void SubmitClicked(object sender,RoutedEventArgs e)=>await Run(async()=>{
         var value=state=="authorizationStateWaitPassword"?Credential.Password:Credential.Password.Trim();if(value.Length==0)return;
         switch(state){case "authorizationStateWaitPhoneNumber":await Request("setAuthenticationPhoneNumber",new {phone_number=value});break;case "authorizationStateWaitCode":await Request("checkAuthenticationCode",new {code=value});break;case "authorizationStateWaitPassword":await Request("checkAuthenticationPassword",new {password=value});break;case "authorizationStateWaitEmailAddress":await Request("setAuthenticationEmailAddress",new {email_address=value});break;case "authorizationStateWaitEmailCode":await Request("checkAuthenticationEmailCode",new {code=new {@type="emailAddressAuthenticationCode",code=value}});break;}
@@ -107,11 +115,39 @@ public partial class MainWindow : Window
     });
     private async void ResendClicked(object sender,RoutedEventArgs e)=>await Run(async()=>{await Request("resendAuthenticationCode");});
     private async void ChatSelected(object sender,SelectionChangedEventArgs e)=>await Run(async()=>{if(refreshing||Chats.SelectedItem is not BotChat c)return;await Select(c);});
-    private async Task Select(BotChat c){if(selected!=0&&selected!=c.Id)await Request("closeChat",new {chat_id=selected});selected=c.Id;var g=++generation;ChatTitle.Text=c.Label;allCommands.Clear();Commands.Items.Clear();ApplyPreference();RenderMessages();await Request("openChat",new {chat_id=c.Id});await History(c.Id,false);var full=await Request("getUserFullInfo",new {user_id=c.UserId});if(g!=generation)return;if(full.TryGetProperty("bot_info",out var info)&&info.ValueKind==JsonValueKind.Object)foreach(var cmd in info.GetProperty("commands").EnumerateArray())allCommands.Add(new Command("/"+Str(cmd,"command"),"/"+Str(cmd,"command")+" — "+Str(cmd,"description")));UpdateCommands();}
+    private async Task Select(BotChat c){if(selected!=0&&selected!=c.Id)await Request("closeChat",new {chat_id=selected});selected=c.Id;var g=++generation;ChatTitle.Text=c.Label;ConversationEmpty.Visibility=Visibility.Collapsed;ChatTools.Visibility=Visibility.Collapsed;allCommands.Clear();Commands.Items.Clear();ApplyPreference();RenderMessages();await Request("openChat",new {chat_id=c.Id});await History(c.Id,false);var full=await Request("getUserFullInfo",new {user_id=c.UserId});if(g!=generation)return;if(full.TryGetProperty("bot_info",out var info)&&info.ValueKind==JsonValueKind.Object)foreach(var cmd in info.GetProperty("commands").EnumerateArray())allCommands.Add(new Command("/"+Str(cmd,"command"),"/"+Str(cmd,"command")+" — "+Str(cmd,"description")));UpdateCommands();}
     private async Task History(long id,bool older){long from=older&&messages.TryGetValue(id,out var old)&&old.Count>0?old.Keys.First():0;var history=await Request("getChatHistory",new {chat_id=id,from_message_id=from,offset=0,limit=50,only_local=false});foreach(var m in history.GetProperty("messages").EnumerateArray())if(m.ValueKind==JsonValueKind.Object)Upsert(m);if(selected==id){RenderMessages();var ids=messages.GetValueOrDefault(id)?.Keys.ToArray();if(ids?.Length>0)await Request("viewMessages",new {chat_id=id,message_ids=ids,force_read=true});}}
     private static string Text(JsonElement m){var c=m.GetProperty("content");if(c.TryGetProperty("text",out var t))return Str(t,"text");if(c.TryGetProperty("caption",out var caption)&&Str(caption,"text")!="")return Str(caption,"text");return Type(c).Replace("message","");}
     private static JsonElement? Media(JsonElement m){var c=m.GetProperty("content");if(c.TryGetProperty("photo",out var photo))return photo.GetProperty("sizes").EnumerateArray().Last().GetProperty("photo");foreach(var pair in new[]{("document","document"),("video","video"),("animation","animation"),("audio","audio"),("voice_note","voice"),("sticker","sticker")})if(c.TryGetProperty(pair.Item1,out var media))return media.GetProperty(pair.Item2);return null;}
-    private void RenderMessages(){var atBottom=HistoryScroll.ScrollableHeight-HistoryScroll.VerticalOffset<60;Messages.Children.Clear();if(!messages.TryGetValue(selected,out var list))return;foreach(var m in list.Values){var panel=new StackPanel {Margin=new Thickness(0,4,0,4),Background=m.GetProperty("is_outgoing").GetBoolean()?new SolidColorBrush(Color.FromRgb(219,242,240)):Brushes.White};panel.Children.Add(new TextBlock {Text=Text(m),TextWrapping=TextWrapping.Wrap,Margin=new Thickness(12)});if(m.TryGetProperty("sending_state",out var sending)&&Type(sending)=="messageSendingStateFailed")panel.Children.Add(new TextBlock {Text="Message failed to send",Foreground=Brushes.Firebrick});if(Media(m) is JsonElement media){var download=new Button {Content="Download / open attachment",Margin=new Thickness(8)};download.Click+=async(_,_)=>await Run(async()=>{var file=await Request("downloadFile",new {file_id=media.GetProperty("id").GetInt64(),priority=16,offset=0,limit=0,synchronous=true});var path=Str(file.GetProperty("local"),"path");if(!string.IsNullOrEmpty(path))ProcessStart("explorer.exe","/select,\""+path+"\"");});panel.Children.Add(download);}if(m.TryGetProperty("reply_markup",out var markup)&&Type(markup)=="replyMarkupInlineKeyboard")foreach(var row in markup.GetProperty("rows").EnumerateArray()){var buttons=new WrapPanel();foreach(var b in row.EnumerateArray()){var copy=b.Clone();var btn=new Button {Content=Str(b,"text"),IsEnabled=Type(b.GetProperty("type"))!="inlineKeyboardButtonTypeDisabled",Padding=new Thickness(10,6,10,6),Margin=new Thickness(3)};btn.Click+=async(_,_)=>await Run(()=>Inline(m,copy));buttons.Children.Add(btn);}panel.Children.Add(buttons);}Messages.Children.Add(panel);}if(atBottom)HistoryScroll.ScrollToEnd();}
+    private void RenderMessages(){
+        var atBottom=HistoryScroll.ScrollableHeight-HistoryScroll.VerticalOffset<60;
+        Messages.Children.Clear();
+        if(!messages.TryGetValue(selected,out var list))return;
+        foreach(var m in list.Values){
+            var outgoing=m.GetProperty("is_outgoing").GetBoolean();
+            var panel=new StackPanel();
+            panel.Children.Add(new TextBlock {Text=Text(m),TextWrapping=TextWrapping.Wrap,FontSize=14,Foreground=new SolidColorBrush(Color.FromRgb(23,33,43))});
+            if(m.TryGetProperty("sending_state",out var sending)&&Type(sending)=="messageSendingStateFailed")panel.Children.Add(new TextBlock {Text="Message failed to send",Foreground=Brushes.Firebrick,FontSize=11});
+            if(Media(m) is JsonElement media){
+                var download=new Button {Content="↓  Download / open attachment",Margin=new Thickness(0,8,0,0),HorizontalAlignment=HorizontalAlignment.Left};
+                download.Click+=async(_,_)=>await Run(async()=>{var file=await Request("downloadFile",new {file_id=media.GetProperty("id").GetInt64(),priority=16,offset=0,limit=0,synchronous=true});var path=Str(file.GetProperty("local"),"path");if(!string.IsNullOrEmpty(path))ProcessStart("explorer.exe","/select,\""+path+"\"");});
+                panel.Children.Add(download);
+            }
+            if(m.TryGetProperty("date",out var date))panel.Children.Add(new TextBlock {Text=DateTimeOffset.FromUnixTimeSeconds(date.GetInt64()).ToLocalTime().ToString("HH:mm")+(outgoing?"  ✓":""),FontSize=10,Foreground=outgoing?new SolidColorBrush(Color.FromRgb(105,165,83)):new SolidColorBrush(Color.FromRgb(150,170,184)),HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(12,3,0,0)});
+            var group=new StackPanel {MaxWidth=500,HorizontalAlignment=outgoing?HorizontalAlignment.Right:HorizontalAlignment.Left,Margin=new Thickness(0,4,0,4)};
+            group.Children.Add(new Border {Child=panel,CornerRadius=new CornerRadius(11,11,outgoing?3:11,outgoing?11:3),Padding=new Thickness(12,9,12,6),Background=outgoing?new SolidColorBrush(Color.FromRgb(239,255,223)):Brushes.White});
+            if(m.TryGetProperty("reply_markup",out var markup)&&Type(markup)=="replyMarkupInlineKeyboard")foreach(var row in markup.GetProperty("rows").EnumerateArray()){
+                var buttons=new WrapPanel {Margin=new Thickness(0,3,0,0)};
+                foreach(var b in row.EnumerateArray()){
+                    var copy=b.Clone();var btn=new Button {Content=Str(b,"text"),IsEnabled=Type(b.GetProperty("type"))!="inlineKeyboardButtonTypeDisabled",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,0,3,0),Background=new SolidColorBrush(Color.FromArgb(100,70,120,80)),Foreground=Brushes.White};
+                    btn.Click+=async(_,_)=>await Run(()=>Inline(m,copy));buttons.Children.Add(btn);
+                }
+                group.Children.Add(buttons);
+            }
+            Messages.Children.Add(group);
+        }
+        if(atBottom)HistoryScroll.ScrollToEnd();
+    }
     private async Task Inline(JsonElement message,JsonElement button){var type=button.GetProperty("type");if(Type(type)=="inlineKeyboardButtonTypeUrl"){OpenUrl(Str(type,"url"));return;}if(Type(type)=="inlineKeyboardButtonTypeCopyText"){Clipboard.SetText(Str(type,"text"));Status.Text="Copied to clipboard";return;}
         if(Type(type)=="inlineKeyboardButtonTypeUser"){OpenUrl("tg://user?id="+type.GetProperty("user_id").GetInt64());return;}
         if(Type(type)=="inlineKeyboardButtonTypeDisabled")return;
@@ -139,10 +175,10 @@ public partial class MainWindow : Window
         var result=await Request("sendMessage",new {chat_id=id,input_message_content=new {@type="inputMessageDocument",document=new {@type="inputDocument",document=new {@type="inputFileLocal",path=picker.FileName},disable_content_type_detection=false},caption=new {@type="formattedText",text=caption}}});
         Upsert(result);if(selected==id&&Composer.Text==caption)Composer.Clear();RenderMessages();
     });
-    private void UpdateCommands(){if(Commands==null)return;var prefix=Composer?.Text??"";Commands.Items.Clear();foreach(var command in allCommands.Where(c=>!prefix.StartsWith("/")||c.Value.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)))Commands.Items.Add(command);}
+    private void UpdateCommands(){if(Commands==null)return;var prefix=Composer?.Text??"";Commands.Items.Clear();foreach(var command in allCommands.Where(c=>prefix.StartsWith("/")&&c.Value.StartsWith(prefix,StringComparison.OrdinalIgnoreCase)))Commands.Items.Add(command);Commands.Visibility=selected!=0&&Pref(selected).Category=="chat"&&Commands.Items.Count>0?Visibility.Visible:Visibility.Collapsed;}
     private void DraftChanged(object sender,TextChangedEventArgs e)=>UpdateCommands();
     private void CommandSelected(object sender,SelectionChangedEventArgs e){if(Commands.SelectedItem is Command c){Composer.Text=c.Value+" ";Composer.Focus();Composer.CaretIndex=Composer.Text.Length;}}
-    private void ApplyPreference(){var p=Pref(selected);Category.Content=p.Category=="chat"?"Interactive":"Alerts only";Noise.Content="Notifications: "+p.Noise;ComposePanel.Visibility=p.Category=="chat"?Visibility.Visible:Visibility.Collapsed;Commands.Visibility=ComposePanel.Visibility;}
+    private void ApplyPreference(){var p=Pref(selected);Category.Content=p.Category=="chat"?"Interactive":"Alerts only";Noise.Content="Notifications: "+p.Noise;ComposePanel.Visibility=p.Category=="chat"?Visibility.Visible:Visibility.Collapsed;UpdateCommands();}
     private void SavePreference(Preference p){preferences[selected]=p;SessionStorage.Save("preferences.dpapi",preferences);ApplyPreference();RefreshBots();}
     private void CategoryClicked(object sender,RoutedEventArgs e){if(selected!=0)SavePreference(Pref(selected) with {Category=Pref(selected).Category=="chat"?"alerts":"chat"});}
     private void NoiseClicked(object sender,RoutedEventArgs e){if(selected!=0)SavePreference(Pref(selected) with {Noise=Pref(selected).Noise switch {"quiet"=>"loud","loud"=>"off",_=>"quiet"}});}
@@ -155,5 +191,9 @@ public partial class MainWindow : Window
         var c=await Request("searchPublicChat",new {username=value});if(Type(c.GetProperty("type"))!="chatTypePrivate")throw new InvalidOperationException("This is not a bot");var uid=c.GetProperty("type").GetProperty("user_id").GetInt64();var u=await Request("getUser",new {user_id=uid});if(Type(u.GetProperty("type"))!="userTypeBot")throw new InvalidOperationException("This account is not a bot");users[uid]=u;var id=c.GetProperty("id").GetInt64();chats[id]=c;RefreshBots();await Select(new BotChat(id,uid,Str(c,"title")));if(parameter!="")await Request("sendBotStartMessage",new {bot_user_id=uid,chat_id=id,parameter});BotLink.Clear();
     });
     private async void LogoutClicked(object sender,RoutedEventArgs e)=>await Run(async()=>{if(MessageBox.Show("Log out of Telegram on this device?","BotHub",MessageBoxButton.YesNo)==MessageBoxResult.Yes)await Request("logOut");});
+    private void AddBotToggleClicked(object sender,RoutedEventArgs e){AddBotPanel.Visibility=AddBotPanel.Visibility==Visibility.Visible?Visibility.Collapsed:Visibility.Visible;if(AddBotPanel.Visibility==Visibility.Visible)BotLink.Focus();}
+    private void RailFilterClicked(object sender,RoutedEventArgs e){if(sender is Button b&&int.TryParse(b.Tag?.ToString(),out var index))FeedFilter.SelectedIndex=index;}
+    private void SearchChanged(object sender,TextChangedEventArgs e)=>RefreshBots();
+    private void ChatInfoClicked(object sender,RoutedEventArgs e){if(selected!=0)ChatTools.Visibility=ChatTools.Visibility==Visibility.Visible?Visibility.Collapsed:Visibility.Visible;}
     private async void OnClosing(object? sender,CancelEventArgs e){if(exiting)return;e.Cancel=true;exiting=true;try{if(client!=null)await client.DisposeAsync();}catch(Exception ex){Status.Text="Closing TDLib: "+ex.Message;}finally{tray?.Dispose();Close();}}
 }

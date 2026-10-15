@@ -33,3 +33,20 @@ Date: 2026-10-15. Baseline: main commit `26ee40a750a9fea5b0b40ec5f24a138a4ea6dd0
 An initial source-tree update was rejected by automatic approval review because explicit upload authorization was not in the visible task context. A subsequent continuity search recovered the user's prior exact instruction to finish development and upload everything to GitHub, tied specifically to Botify. Repository metadata and authenticated account both confirm `az0512124155azz-sys`; push/admin permissions are present. The retry was also rejected. The user has now explicitly approved publishing the source changes to the public Botify repository and running all platform builds (2026-10-15). Source upload and platform CI verification can proceed.
 
 See [remaining work](remaining-work.md) for the full release gates. A source implementation, passing unit tests and an installable client are different verification levels.
+
+
+## Approved desktop design update
+
+The user approved HTML design 04 based on their Telegram Desktop screenshot.
+Windows and macOS now use a dark folder rail, compact bot list, a separate
+centered sign-in screen, green patterned chat background and message bubbles.
+The mobile redesign is awaiting approval of its HTML preview and is not applied.
+Windows CI captures real WPF login and offline sample conversation screenshots.
+These fixture screenshots verify layout without connecting to a Telegram account.
+
+Run 38788233455 built Windows and macOS and passed their native bridge tests.
+Android produced an APK but failed UI collection through shared storage; the
+new smoke script streams UI and screenshots directly over adb. KVM permissions
+are configured before emulator launch. iOS CocoaPods rejected upstream loose
+dylibs inside its XCFramework; the new packaging step wraps the same cached
+binaries in embeddable frameworks. The changes require a new native run.

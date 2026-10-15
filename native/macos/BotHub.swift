@@ -214,90 +214,173 @@ private struct Message: Identifiable {
   }
   func shutdown() async { await client?.close() }
 }
+private enum BotTheme {
+  static let blue = Color(red:0.26,green:0.62,blue:0.84)
+  static let rail = Color(red:0.17,green:0.24,blue:0.31)
+  static let muted = Color(red:0.57,green:0.61,blue:0.65)
+}
+private struct BotAvatar: View {
+  let title: String
+  var body: some View {
+    Text(String(title.prefix(1)).uppercased()).font(.system(size:20)).foregroundStyle(.white)
+      .frame(width:46,height:46)
+      .background(LinearGradient(colors:[Color(red:0.68,green:0.58,blue:0.92),Color(red:0.47,green:0.37,blue:0.83)],startPoint:.top,endPoint:.bottom))
+      .clipShape(Circle())
+  }
+}
+private struct BotWallpaper: View {
+  var body: some View {
+    LinearGradient(colors:[Color(red:0.84,green:0.87,blue:0.58),Color(red:0.64,green:0.78,blue:0.57),Color(red:0.48,green:0.69,blue:0.59),Color(red:0.82,green:0.86,blue:0.63)],startPoint:.topLeading,endPoint:.bottomTrailing)
+      .overlay {
+        Canvas { context,size in
+          for row in 0...Int(size.height/150) {
+            for column in 0...Int(size.width/180) {
+              let x=Double(column)*180+15, y=Double(row)*150+15
+              var plane=Path()
+              plane.move(to:CGPoint(x:x,y:y+18));plane.addLines([CGPoint(x:x+42,y:y+3),CGPoint(x:x+30,y:y+43),CGPoint(x:x+20,y:y+27),CGPoint(x:x+9,y:y+33),CGPoint(x:x+12,y:y+21),CGPoint(x:x+42,y:y+3)])
+              context.stroke(plane,with:.color(.green.opacity(0.13)),lineWidth:1)
+              var chat=Path(roundedRect:CGRect(x:x+90,y:y+72,width:43,height:31),cornerRadius:8)
+              chat.move(to:CGPoint(x:x+97,y:y+103));chat.addLines([CGPoint(x:x+94,y:y+111),CGPoint(x:x+107,y:y+103)])
+              chat.move(to:CGPoint(x:x+99,y:y+84));chat.addLine(to:CGPoint(x:x+124,y:y+84))
+              chat.move(to:CGPoint(x:x+99,y:y+92));chat.addLine(to:CGPoint(x:x+117,y:y+92))
+              context.stroke(chat,with:.color(.green.opacity(0.13)),lineWidth:1)
+            }
+          }
+        }
+      }
+  }
+}
 @MainActor private struct BotHubView: View {
   @StateObject private var model = BotModel()
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("BotHub").font(.system(size: 30, weight: .bold))
-      Text(model.status).foregroundStyle(.secondary).textSelection(.enabled)
-      if !model.started {
-        TextField("Telegram API ID", text: $model.apiId)
-        SecureField("Telegram API hash", text: $model.apiHash)
-        Button("Connect Telegram") { model.run { try await model.connect() } }.disabled(model.busy)
-      } else if model.auth != "authorizationStateReady" {
-        Text(model.auth.replacingOccurrences(of: "authorizationStateWait", with: "Enter "))
-        SecureField("Phone, code, email or 2FA password", text: $model.credential)
-        Button("Continue") { model.run { try await model.login() } }
-        if model.auth == "authorizationStateWaitCode" || model.auth == "authorizationStateWaitEmailCode" {
-          Button("Resend code") { model.run { _ = try await model.request("resendAuthenticationCode") } }
+    VStack(spacing:0) {
+      if model.auth == "authorizationStateReady" {
+        HStack(spacing:0) {
+          BotRail(model:model)
+          BotSidebar(model:model).frame(width:300)
+          Divider()
+          BotConversation(model:model).frame(minWidth:420)
         }
+      } else { BotSignIn(model:model) }
+      Divider()
+      Text(model.status).font(.system(size:10)).foregroundStyle(BotTheme.muted).textSelection(.enabled)
+        .frame(maxWidth:.infinity,alignment:.leading).padding(.horizontal,12).padding(.vertical,4).background(Color.white)
+    }
+    .frame(minWidth:880,minHeight:600)
+    .background(.white).tint(BotTheme.blue).preferredColorScheme(.light)
+    .onAppear { BotHubAppDelegate.shutdown = { await model.shutdown() } }
+  }
+}
+@MainActor private struct BotSignIn: View {
+  @ObservedObject var model: BotModel
+  var body: some View {
+    VStack(spacing:14) {
+      Image(systemName:"paperplane.fill").font(.system(size:38)).foregroundStyle(.white).frame(width:80,height:80).background(BotTheme.blue).clipShape(Circle()).padding(.bottom,12)
+      Text("Welcome to BotHub").font(.system(size:24,weight:.semibold))
+      Text("Sign in with your Telegram account.\nYour bots and updates, in one place.").font(.system(size:13)).foregroundStyle(BotTheme.muted).multilineTextAlignment(.center).padding(.bottom,14)
+      if !model.started {
+        VStack(alignment:.leading,spacing:7) {
+          Text("Telegram API ID").font(.caption).foregroundStyle(BotTheme.muted)
+          TextField("API ID",text:$model.apiId).textFieldStyle(.roundedBorder)
+          Text("Telegram API hash").font(.caption).foregroundStyle(BotTheme.muted).padding(.top,8)
+          SecureField("API hash",text:$model.apiHash).textFieldStyle(.roundedBorder)
+        }
+        Button {model.run {try await model.connect()}} label:{Text("CONNECT TELEGRAM").frame(maxWidth:.infinity).padding(.vertical,8)}.buttonStyle(.borderedProminent).disabled(model.busy)
+        Text("Use your application credentials from my.telegram.org").font(.system(size:10)).foregroundStyle(BotTheme.muted)
       } else {
-        HSplitView {
-          BotSidebar(model: model).frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
-          BotConversation(model: model).padding(.leading, 14).frame(minWidth: 360)
+        Text(model.auth.replacingOccurrences(of:"authorizationStateWait",with:"Enter ")).font(.caption).foregroundStyle(BotTheme.blue)
+        SecureField("Phone, code, email or 2FA password",text:$model.credential).textFieldStyle(.roundedBorder)
+        Button {model.run {try await model.login()}} label:{Text("CONTINUE").frame(maxWidth:.infinity).padding(.vertical,8)}.buttonStyle(.borderedProminent).disabled(model.busy)
+        if model.auth == "authorizationStateWaitCode" || model.auth == "authorizationStateWaitEmailCode" {
+          Button("Resend code") {model.run {_ = try await model.request("resendAuthenticationCode")}}.buttonStyle(.plain)
         }
       }
-    }
-    .padding(24)
-    .frame(minWidth: 760, minHeight: 560)
-    .background(Color(red: 0.96, green: 0.97, blue: 0.98))
-    .tint(Color(red: 0.03, green: 0.49, blue: 0.54))
-    .onAppear { BotHubAppDelegate.shutdown = { await model.shutdown() } }
+    }.frame(width:330).frame(maxWidth:.infinity,maxHeight:.infinity).background(.white)
+  }
+}
+@MainActor private struct BotRail: View {
+  @ObservedObject var model: BotModel
+  var body: some View {
+    VStack(spacing:0) {
+      Image(systemName:"line.3.horizontal").font(.system(size:20)).frame(height:54)
+      folder("All chats","bubble.left.and.bubble.right.fill","all")
+      folder("Chats","folder.fill","chat")
+      folder("Updates","bell.fill","alerts")
+      Button {model.run {try await model.loadChats()}} label:{Image(systemName:"arrow.clockwise").font(.system(size:20)).frame(width:64,height:54)}.buttonStyle(.plain).help("Refresh bots")
+      Spacer()
+      Button("Log out") {model.run {_ = try await model.request("logOut")}}.font(.system(size:10)).buttonStyle(.plain).padding(.bottom,20)
+    }.frame(width:64).foregroundStyle(Color(red:0.56,green:0.65,blue:0.73)).background(BotTheme.rail)
+  }
+  private func folder(_ title:String,_ icon:String,_ value:String)->some View {
+    Button {model.filter=value} label:{VStack(spacing:6){Image(systemName:icon).font(.system(size:23));Text(title).font(.system(size:10))}.frame(width:64,height:67).background(model.filter==value ? Color.black.opacity(0.15):Color.clear).foregroundStyle(model.filter==value ? Color(red:0.38,green:0.74,blue:1):Color(red:0.56,green:0.65,blue:0.73))}.buttonStyle(.plain)
   }
 }
 @MainActor private struct BotSidebar: View {
   @ObservedObject var model: BotModel
-  private var visibleBots: [Bot] {
-    model.bots.filter { model.filter == "all" || (model.preferences[String($0.id)] ?? Preference()).category == model.filter }
-  }
+  @State private var search=""
+  @State private var adding=false
+  private var visibleBots:[Bot] {model.bots.filter {bot in (model.filter=="all" || (model.preferences[String(bot.id)] ?? Preference()).category==model.filter) && (search.isEmpty || bot.title.localizedCaseInsensitiveContains(search))}}
   var body: some View {
-    VStack {
-      Picker("Feed", selection: $model.filter) {
-        Text("All").tag("all")
-        Text("Interactive").tag("chat")
-        Text("Alerts").tag("alerts")
-      }.pickerStyle(.segmented)
-      List(visibleBots) { bot in
-        Button(bot.title) { model.run { try await model.select(bot) } }.buttonStyle(.plain)
+    VStack(spacing:0) {
+      HStack {TextField("Search",text:$search).textFieldStyle(.plain);Button {adding.toggle()} label:{Image(systemName:"plus")}.buttonStyle(.plain).help("Open a bot")}
+        .padding(.horizontal,14).frame(height:36).background(Color(white:0.95)).clipShape(Capsule()).padding(10)
+      if adding {
+        TextField("@bot or t.me link",text:$model.botLink).textFieldStyle(.roundedBorder).padding(.horizontal,12)
+        Button("Open bot") {model.run {try await model.addBot();adding=false}}.padding(8)
       }
-      TextField("@bot or t.me link", text: $model.botLink)
-      Button("Open bot") { model.run { try await model.addBot() } }
-      Button("Refresh") { model.run { try await model.loadChats() } }
-      Button("Log out") { model.run { _ = try await model.request("logOut") } }
-    }
+      ScrollView {
+        LazyVStack(spacing:0) {
+          ForEach(visibleBots) {bot in
+            Button {model.run {try await model.select(bot)}} label:{
+              HStack(spacing:12) {
+                BotAvatar(title:bot.title)
+                VStack(alignment:.leading,spacing:6) {Text(bot.title).font(.system(size:13,weight:.semibold)).lineLimit(1);Text("bot").font(.system(size:12)).opacity(0.6)}
+                Spacer(minLength:0)
+              }.padding(.horizontal,10).frame(height:68).frame(maxWidth:.infinity,alignment:.leading)
+                .background(model.selected?.id==bot.id ? BotTheme.blue:Color.white)
+                .foregroundStyle(model.selected?.id==bot.id ? Color.white:Color.primary)
+            }.buttonStyle(.plain)
+          }
+        }
+      }
+    }.background(.white)
   }
 }
 @MainActor private struct BotConversation: View {
   @ObservedObject var model: BotModel
   var body: some View {
-    VStack(alignment: .leading) {
-      Text(model.selected?.title ?? "Only bots. No groups, no noise.").font(.title2)
-      if model.selected != nil {
-        HStack {
-          Button(model.pref.category == "chat" ? "Interactive" : "Alerts only") { model.changePreference(category: true) }
-          Button("Notifications: \(model.pref.noise)") { model.changePreference(category: false) }
-          Button("Older messages") { model.run { try await model.loadHistory(older: true) } }
+    VStack(spacing:0) {
+      HStack {
+        VStack(alignment:.leading,spacing:3) {Text(model.selected?.title ?? "BotHub").font(.system(size:14,weight:.semibold));Text("bot").font(.system(size:12)).foregroundStyle(BotTheme.muted)}
+        Spacer()
+        if model.selected != nil {
+          Menu {
+            Button(model.pref.category=="chat" ? "Move to updates":"Move to chats") {model.changePreference(category:true)}
+            Button("Notifications: \(model.pref.noise)") {model.changePreference(category:false)}
+            Button("Older messages") {model.run {try await model.loadHistory(older:true)}}
+          } label:{Image(systemName:"ellipsis").font(.system(size:20)).foregroundStyle(BotTheme.muted)}.menuStyle(.borderlessButton).frame(width:30)
         }
-        ScrollView {
-          LazyVStack(alignment: .leading) {
-            ForEach(model.messages) { message in BotMessageRow(model: model, message: message) }
+      }.padding(.horizontal,18).frame(height:56).background(.white)
+      Divider()
+      ZStack {
+        BotWallpaper()
+        if model.selected == nil {
+          Text("Select a bot to start messaging").font(.system(size:12)).foregroundStyle(.white).padding(.horizontal,16).padding(.vertical,8).background(Color.black.opacity(0.18)).clipShape(Capsule())
+        } else {
+          ScrollView {
+            LazyVStack(alignment:.leading,spacing:8) {ForEach(model.messages){message in BotMessageRow(model:model,message:message)}}.padding(20)
           }
         }
-        if model.pref.category == "chat" {
-          if model.draft.hasPrefix("/") {
-            ForEach(model.commands.indices, id: \.self) { index in
-              let command = model.commands[index]["command"] as? String ?? ""
-              if ("/" + command).hasPrefix(model.draft) {
-                Button("/" + command) { model.draft = "/" + command + " " }
-              }
-            }
-          }
-          HStack {
-            TextField("Message", text: $model.draft).onSubmit { model.run { try await model.send() } }
-            Button("Send") { model.run { try await model.send() } }
-            Button("Attach file") { model.run { try await model.attach() } }
-          }
+      }
+      if model.selected != nil && model.pref.category=="chat" {
+        if model.draft.hasPrefix("/") {
+          HStack {ForEach(model.commands.indices,id:\.self){index in let command=model.commands[index]["command"] as? String ?? "";if ("/"+command).hasPrefix(model.draft){Button("/"+command){model.draft="/"+command+" "}}}.padding(8).frame(maxWidth:.infinity,alignment:.leading).background(.white)
         }
+        HStack(spacing:14) {
+          Button {model.run {try await model.attach()}} label:{Image(systemName:"paperclip").font(.system(size:22)).foregroundStyle(BotTheme.muted)}.buttonStyle(.plain).help("Attach file")
+          TextField("Write a message…",text:$model.draft).textFieldStyle(.plain).onSubmit {model.run {try await model.send()}}
+          Button {model.run {try await model.send()}} label:{Image(systemName:"paperplane.fill").font(.system(size:20))}.buttonStyle(.plain).help("Send")
+        }.padding(.horizontal,16).frame(minHeight:50).background(.white)
       }
     }
   }
@@ -305,25 +388,21 @@ private struct Message: Identifiable {
 @MainActor private struct BotMessageRow: View {
   @ObservedObject var model: BotModel
   let message: Message
+  private var outgoing:Bool {message.raw["is_outgoing"] as? Bool ?? false}
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(message.text).textSelection(.enabled)
-      if message.media != nil {
-        Button("Download / reveal attachment") { model.run { try await model.download(message) } }
+    VStack(alignment:.leading,spacing:4) {
+      VStack(alignment:.leading,spacing:7) {
+        Text(message.text).font(.system(size:14)).textSelection(.enabled)
+        if message.media != nil {Button("↓ Download / reveal attachment"){model.run {try await model.download(message)}}.buttonStyle(.plain).foregroundStyle(BotTheme.blue)}
+        if let date=message.raw["date"] as? NSNumber {Text(Date(timeIntervalSince1970:date.doubleValue),style:.time).font(.system(size:10)).foregroundStyle(BotTheme.muted).frame(maxWidth:.infinity,alignment:.trailing)}
+      }.padding(12).background(outgoing ? Color(red:0.94,green:1,blue:0.88):Color.white).clipShape(RoundedRectangle(cornerRadius:10))
+      ForEach(message.buttons.indices,id:\.self){row in
+        HStack(spacing:3){ForEach(message.buttons[row].indices,id:\.self){index in
+          let button=message.buttons[row][index]
+          Button {model.run {try await model.inline(button,message)}} label:{Text(button["text"] as? String ?? "Button").font(.system(size:12)).frame(maxWidth:.infinity).padding(9).background(Color(red:0.27,green:0.49,blue:0.3).opacity(0.45)).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius:4))}.buttonStyle(.plain).disabled(type(button["type"] as? JSON ?? [:])=="inlineKeyboardButtonTypeDisabled")
+        }}
       }
-      ForEach(message.buttons.indices, id: \.self) { row in
-        HStack {
-          ForEach(message.buttons[row].indices, id: \.self) { index in
-            let button = message.buttons[row][index]
-            Button(button["text"] as? String ?? "Button") { model.run { try await model.inline(button, message) } }.disabled(type(button["type"] as? JSON ?? [:]) == "inlineKeyboardButtonTypeDisabled")
-          }
-        }
-      }
-    }
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.white)
-    .cornerRadius(10)
+    }.frame(maxWidth:480,alignment:.leading).frame(maxWidth:.infinity,alignment:outgoing ? .trailing:.leading)
   }
 }
 @MainActor final class BotHubAppDelegate: NSObject, NSApplicationDelegate {

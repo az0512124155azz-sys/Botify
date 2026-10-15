@@ -78,6 +78,16 @@ jobs:
           Copy-Item .build/windows-runtime/* .build/smoke/
           dotnet .build/smoke/Smoke.dll
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Capture actual WPF login and conversation layouts
+        shell: pwsh
+        run: |
+          $app=Start-Process -FilePath dist/windows/BotHub.exe -ArgumentList '--ui-smoke','.build/windows-ui' -PassThru
+          if (!$app.WaitForExit(60000)) { $app.Kill(); throw 'WPF visual smoke timed out' }
+          if ($app.ExitCode -ne 0) { Get-Content .build/windows-ui/failure.txt; throw 'WPF visual smoke failed' }
+          if (!(Test-Path .build/windows-ui/login.png) -or !(Test-Path .build/windows-ui/conversation.png)) { throw 'WPF screenshots missing' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: BotHub-Windows-visual-check, path: .build/windows-ui/, if-no-files-found: ignore}
       - uses: actions/upload-artifact@v4
         with: {name: BotHub-Windows-x64-native-smoke, path: dist/windows/, if-no-files-found: error}
   macos:
@@ -159,6 +169,12 @@ jobs:
       - name: Compile standalone APK
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon --stacktrace -PreactNativeArchitectures=arm64-v8a,x86_64
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
       - name: Native module emulator smoke
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -166,6 +182,7 @@ jobs:
           arch: x86_64
           target: google_apis
           profile: pixel_6
+          disable-linux-hw-accel: false
           script: bash scripts/android-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
@@ -203,6 +220,7 @@ jobs:
           key: ios-tdlib-v1-${{ hashFiles('scripts/tdlib-revision.txt') }}
       - name: Generate iOS project and install Pods
         run: |
+          python3 scripts/package-ios-framework.py
           npx expo prebuild --platform ios --no-install
           cd ios
           pod install
