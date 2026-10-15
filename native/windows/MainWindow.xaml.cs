@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     private void ConnectClicked(object sender,RoutedEventArgs e)
     {
         if(!int.TryParse(ApiId.Text,out apiId)||string.IsNullOrWhiteSpace(ApiHash.Text)){Status.Text="Enter a valid Telegram developer API ID and API hash.";return;}
-        try {client?.Dispose();client=new TdClient();client.Update+=OnUpdate;Status.Text="TDLib initialized. Starting authorization...";}
+        try {apiHash=ApiHash.Text.Trim();client?.Dispose();client=new TdClient();client.Update+=OnUpdate;Status.Text="TDLib initialized. Starting authorization...";}
         catch(DllNotFoundException){Status.Text="tdjson.dll is missing. Install a matching native TDLib library before connecting.";}
         catch(Exception ex){Status.Text="Unable to initialize TDLib: "+ex.Message;}
     }
@@ -46,6 +46,7 @@ public partial class MainWindow : Window
             return;
         }
         if(kind=="updateNewChat"){var chat=item.GetProperty("chat");ReadChat(chat);return;}
+        if(kind=="messages"){foreach(var message in item.GetProperty("messages").EnumerateArray()){if(message.TryGetProperty("content",out var content)&&content.TryGetProperty("text",out var t2))Messages.Items.Add(t2.GetProperty("text").GetString());}return;}
         if(kind=="updateUser"){
             var user=item.GetProperty("user");
             if(user.TryGetProperty("type",out var ut)&&ut.GetProperty("@type").GetString()=="userTypeBot"){
